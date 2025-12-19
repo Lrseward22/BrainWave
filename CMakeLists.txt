@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.20.0)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    project(calc)
+    project(brain)
 
     set(CMAKE_CXX_STANDARD 17)
 
@@ -9,13 +9,15 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 
-    add_executable(calc src/driver.cpp)
-    target_sources(calc PRIVATE
+    add_executable(brain src/driver.cpp)
+    target_sources(brain PRIVATE
         src/lib/Utils/Diagnostics.cpp
         src/lib/Utils/TokenKinds.cpp
         src/lib/Lexer/Lexer.cpp
         src/lib/Parser/Parser.cpp
-        src/lib/Generator/CodeGen.cpp
+        src/lib/Sema/Environment.cpp
+        src/lib/Sema/Sema.cpp
+        #src/lib/Generator/CodeGen.cpp
     )
 endif()
 
@@ -25,7 +27,7 @@ list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
 
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
-target_include_directories(calc PUBLIC ${PROJECT_SOURCE_DIR}/src/include)
+target_include_directories(brain PUBLIC ${PROJECT_SOURCE_DIR}/src/include)
 llvm_map_components_to_libnames(LLVM_LIBS
     Core
     Support
@@ -81,6 +83,6 @@ llvm_map_components_to_libnames(LLVM_LIBS
 #    AllTargetsInfos
 #)
 
-target_link_libraries(calc ${LLVM_LIBS})
+target_link_libraries(brain ${LLVM_LIBS})
 
 #add_subdirectory ("src")

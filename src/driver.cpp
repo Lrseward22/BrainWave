@@ -1,5 +1,5 @@
-#include <calc/Utils/Diagnostics.h>
-#include <calc/Generator/CodeGen.h>
+#include <brainwave/Utils/Diagnostics.h>
+#include <brainwave/Generator/CodeGen.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
@@ -21,7 +21,7 @@
 #include "llvm/Pass.h"
 #include <iostream>
 
-using namespace calc;
+using namespace brainwave;
 
 // Command Line Options
 static llvm::cl::opt<std::string> MTriple("mtriple", llvm::cl::desc("Override target triple for module"));
@@ -84,8 +84,8 @@ bool emit(llvm::StringRef Argv0, llvm::Module *M,
         if (InputFilename == "-")
             OutputFilename = "-";
         else {
-            if (InputFilename.endswith(".calc"))
-                OutputFilename = InputFilename.drop_back(5).str();
+            if (InputFilename.endswith(".bw"))
+                OutputFilename = InputFilename.drop_back(3).str();
             else {
                 llvm::WithColor::error(llvm::errs(), Argv0) 
                     << "File Extension not supported\n";
@@ -148,7 +148,7 @@ bool linkExecutable(llvm::StringRef Argv0, llvm::StringRef ObjectFile, llvm::Str
 int main(int argc_, const char **argv_) {
     llvm::InitLLVM X(argc_, argv_);
     static llvm::codegen::RegisterCodeGenFlags CGF;
-    llvm::outs() << "Calc " << "Version 1.0.0" << '\n';
+    llvm::outs() << "BrainWave " << "Version 1.0.0" << '\n';
 
     // Native targeting asm for prototyping
     llvm::InitializeNativeTarget();
@@ -163,13 +163,13 @@ int main(int argc_, const char **argv_) {
     llvm::InitializeAllAsmPrinters();
     */
 
-    llvm::cl::ParseCommandLineOptions(argc_, argv_, "Calc compiler\n");
+    llvm::cl::ParseCommandLineOptions(argc_, argv_, "BrainWave compiler\n");
     
     for (unsigned i = 0; i < InputFiles.size(); ++i) {
         std::string F = InputFiles[i];
-        if (!llvm::StringRef(F).endswith(".calc")) {
+        if (!llvm::StringRef(F).endswith(".cw")) {
             llvm::WithColor::error(llvm::errs(), argv_[0])
-                << "Input file must have .calc extension: " << F << '\n';
+                << "Input file must have .bw extension: " << F << '\n';
             continue;
         }
 
@@ -216,7 +216,7 @@ int main(int argc_, const char **argv_) {
             if (!emit(argv_[0], M, TM, F)) return 1;
         } else {
             llvm::StringRef InputRef(F);
-            std::string ObjectFile = InputRef.drop_back(5).str() + ".o";
+            std::string ObjectFile = InputRef.drop_back(3).str() + ".o";
 
             std::string SavedOutput = OutputFilename.getValue();
             OutputFilename = ObjectFile;
@@ -228,7 +228,7 @@ int main(int argc_, const char **argv_) {
             if (!OutputFilename.empty())
                 ExeName = OutputFilename.getValue();
             else
-                ExeName = InputRef.drop_back(5).str();
+                ExeName = InputRef.drop_back(3).str();
 
             if (!linkExecutable(argv_[0], ObjectFile, ExeName)) return 1;
 
