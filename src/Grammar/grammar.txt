@@ -1,0 +1,146 @@
+parser grammar BrainWave;
+
+prog
+    : statements EOI
+    ;
+
+statements
+    : statement (statement)*
+    ;
+
+statement
+    : block
+    | printStatement SEMI
+    | readStatement SEMI
+    | returnStatement SEMI
+    | ifStatement
+    | whileStatement
+    | untilStatement
+    | forStatement
+    | funcDefStatement
+    | classStatement
+    | importStatement SEMI
+    | declareStatement SEMI
+    | ExprStatement SEMI
+    ;
+
+funcDefStatement
+    : kw_FUN IDENTIFIER L_PAREN paramList? R_PAREN ARROW type block
+    ;
+
+returnStatement
+    : kw_RETURN expr
+    ;
+
+paramList
+    : declareStatement (COMMA paramList)*
+    ;
+
+argList
+    : expr (COMMA argList)*
+    ;
+
+block
+    : L_CURLY statements R_CURLY
+    ;
+
+printStatement
+    : kw_PRINT expr
+    ;
+
+readStatement
+    : kw_READ IDENTIFIER
+    ;
+
+ifStatement
+    : kw_IF boolExpr statement 
+    : kw_IF boolExpr statement kw_ELSE statement
+    ;
+
+whileStatement
+    : kw_WHILE boolExpr statement
+    ;
+
+untilStatement
+    : kw_UNTIL boolExpr statement
+    ;
+
+forStatement
+    : kw_FOR L_PAREN declareStatement SEMI boolExpr SEMI assignExpr R_PAREN statement
+    ;
+
+classStatement
+    : kw_CLASS IDENTIFIER (kw_EXTENDS IDENTIFIER)? block
+    ;
+
+importStatement
+    : kw_IMPORT STRING_LITERAL
+    ;
+    
+declareStatement
+    : TYPE (IDENTIFIER | assignExpr)
+    ;
+
+exprStatement
+    : assignExpr SEMI
+    | logicalExpr SEMI
+    ;
+
+assignExpr
+    : IDENTIFIER ( EQUAL | PLUSEQUAL | MINUSEQUAL ) expr
+    ;
+
+logicalExpr
+    : boolExpr AND logicalExpr
+    | boolExpr OR logicalExpr
+    | boolExpr
+    ;
+
+boolExpr
+    : expr
+    | expr (EQ|NEQ|LESS|LEQ|GREATER|GEQ)? expr
+    ;
+
+expr
+    : termExpr PLUS expr
+    | termExpr MINUS expr
+    | termExpr
+    ;
+
+termExpr
+    : factorExpr STAR termExpr
+    | factorExpr SLASH termExpr
+    | factorExpr PERCENT termExpr
+    | factorExpr
+    ;
+
+factorExpr
+    : unary CARET factorExpr
+    | unary
+    ;
+
+unary
+    : ( BANG | MINUS | MINUSMINUS | PLUSPLUS ) grouping
+    | grouping ( MINUSMINUS | PLUSPLUS )
+    | grouping
+    ;
+
+grouping
+    : L_PAREN logicalExpr R_PAREN
+    | baseExpr
+    ;
+
+baseExpr
+    : funExpr
+    | IDENTIFIER
+    | INTEGER_LITERAL
+    | FLOAT_LITERAL
+    | STRING_LITERAL
+    ;
+
+funExpr
+    : TYPE L_PAREN argList R_PAREN          // This can be used for type conversions. Maybe Array Initialization?
+    | IDENTIFIER L_PAREN argList? R_PAREN
+    ;
+
+TYPE: (kw_INT | kw_BOOL | kw_FLOAT | kw_DOUBLE | kw_STRING | kw_VOID | INDENTIFIER) ;

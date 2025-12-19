@@ -1,0 +1,90 @@
+#ifndef TOK
+#define TOK(ID)
+#endif
+#ifndef IDENTIFIER
+#define IDENTIFIER(ID) TOK(ID)
+#endif
+#ifndef LITERAL
+#define LITERAL(ID) TOK(ID)
+#endif
+#ifndef PUNCTUATOR
+#define PUNCTUATOR(ID, SP) TOK(ID)
+#endif
+#ifndef KEYWORD
+#define KEYWORD(ID, FLAG) TOK(kw_ ## ID)
+#endif
+
+TOK(UNKNOWN)
+TOK(EOI)
+
+IDENTIFIER(IDENTIFIER)
+
+LITERAL(INTEGER_LITERAL)
+LITERAL(FLOAT_LITERAL)
+LITERAL(STRING_LITERAL)
+
+PUNCTUATOR(PLUS,                "+")
+PUNCTUATOR(PLUSPLUS,            "++")
+PUNCTUATOR(MINUS,               "-")
+PUNCTUATOR(MINUSMINUS,          "--")
+PUNCTUATOR(STAR,                "*")
+PUNCTUATOR(SLASH,               "/")
+PUNCTUATOR(CARET,               "^")
+PUNCTUATOR(PERCENT,             "%")
+PUNCTUATOR(COMMA,               ",")
+PUNCTUATOR(PERIOD,              ".")
+PUNCTUATOR(SEMI,                ";")
+PUNCTUATOR(COLON,               ":")
+PUNCTUATOR(PLUSEQUAL,           "+=")
+PUNCTUATOR(MINUSEQUAL,          "-=")
+PUNCTUATOR(EQUAL,               "=")
+PUNCTUATOR(EQ,                  "==")
+PUNCTUATOR(BANG,                "!")
+PUNCTUATOR(NEQ,                 "!=")
+PUNCTUATOR(LESS,                "<")
+PUNCTUATOR(LEQ,                 "<=")
+PUNCTUATOR(GREATER,             ">")
+PUNCTUATOR(GEQ,                 ">=")
+PUNCTUATOR(ARROW,               "->")
+PUNCTUATOR(L_PAREN,             "(")
+PUNCTUATOR(R_PAREN,             ")")
+PUNCTUATOR(L_BRACK,             "[")
+PUNCTUATOR(R_BRACK,             "]")
+PUNCTUATOR(L_CURLY,             "{")
+PUNCTUATOR(R_CURLY,             "}")
+PUNCTUATOR(AND,                 "&&")
+PUNCTUATOR(OR,                  "||")
+PUNCTUATOR(QUOTE,               "\"")
+// ...
+
+KEYWORD(int                         , KEYALL)
+KEYWORD(bool                        , KEYALL)
+KEYWORD(float                       , KEYALL)
+KEYWORD(double                      , KEYALL)
+KEYWORD(string                      , KEYALL)
+KEYWORD(void                        , KEYALL)
+KEYWORD(ptr                         , KEYALL)
+KEYWORD(new                         , KEYALL)
+KEYWORD(null                        , KEYALL)
+KEYWORD(true                        , KEYALL)
+KEYWORD(false                       , KEYALL)
+KEYWORD(const                       , KEYALL)
+KEYWORD(if                          , KEYALL)
+KEYWORD(else                        , KEYALL)
+KEYWORD(while                       , KEYALL)
+KEYWORD(until                       , KEYALL)
+KEYWORD(for                         , KEYALL)
+KEYWORD(fun                         , KEYALL)
+KEYWORD(return                      , KEYALL)
+KEYWORD(class                       , KEYALL)
+KEYWORD(this                        , KEYALL)
+KEYWORD(extends                     , KEYALL)
+KEYWORD(break                       , KEYALL)
+KEYWORD(print                       , KEYALL)
+KEYWORD(read                        , KEYALL)
+KEYWORD(import                      , KEYALL)
+// ...
+
+#undef KEYWORD
+#undef PUNCTUATOR
+#undef TOK
