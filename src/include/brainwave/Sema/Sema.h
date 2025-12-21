@@ -8,15 +8,28 @@ class Sema {
     Parser &P;
     std::unique_ptr<AST> ast;
     Environment env;
-    Environment *currEnv;
+    Environment* currEnv;
+
+    public:
+    Sema(Parser &P) : P(P), env(Environment(EnvKind::Base, nullptr)) { 
+        currEnv = &env;
+    }
+
+    ~Sema() {
+        if (currEnv != &env)
+            delete currEnv;
+    }
 
     brainwave::DiagnosticsEngine &getDiagnostics() const {
         return P.getDiagnostics();
     }
 
-    public:
-    Sema(Parser &P) : P(P), env(Environment(EnvKind::Base, nullptr)) {
-        currEnv = &env;
+    Environment* getEnvironment() {
+        return &env;
+    }
+
+    Environment* getCurrEnvironment() {
+        return currEnv;
     }
 
     std::unique_ptr<AST> next();

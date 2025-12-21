@@ -1,5 +1,6 @@
 #include <brainwave/Utils/Diagnostics.h>
-#include <brainwave/Generator/CodeGen.h>
+#include <brainwave/Sema/Sema.h>
+//#include <brainwave/Generator/CodeGen.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
@@ -19,6 +20,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Pass.h"
+#include "llvm/Target/TargetMachine.h"
 #include <iostream>
 
 using namespace brainwave;
@@ -167,7 +169,7 @@ int main(int argc_, const char **argv_) {
     
     for (unsigned i = 0; i < InputFiles.size(); ++i) {
         std::string F = InputFiles[i];
-        if (!llvm::StringRef(F).endswith(".cw")) {
+        if (!llvm::StringRef(F).endswith(".bw")) {
             llvm::WithColor::error(llvm::errs(), argv_[0])
                 << "Input file must have .bw extension: " << F << '\n';
             continue;
@@ -185,8 +187,11 @@ int main(int argc_, const char **argv_) {
         SrcMgr.AddNewSourceBuffer(std::move(*FileOrErr), llvm::SMLoc());
         auto TheLexer = Lexer(SrcMgr, Diags);
         auto TheParser = Parser(TheLexer);
-        auto TheGenerator = CodeGen(TheParser);
+        auto TheSema = Sema(TheParser);
+        TheSema.next();
+        //auto TheGenerator = CodeGen(TheParser);
 
+        /*
         llvm::TargetMachine* TM = createTargetMachine(argv_[0]);
         if (!TM) {
             llvm::errs() << "Failed to create the Target Machine\n";
@@ -234,6 +239,7 @@ int main(int argc_, const char **argv_) {
 
             llvm::sys::fs::remove(ObjectFile);
         }
+        */
     }
 
     return 0;

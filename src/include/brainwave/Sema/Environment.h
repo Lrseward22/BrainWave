@@ -7,6 +7,7 @@
 
 enum class EnvKind {
     Base,
+    If,
     Loop,
     Function,
     Class,
@@ -24,11 +25,13 @@ class Environment {
     Environment(EnvKind kind, Environment *parent) 
         : parent(parent), kind(kind) {}
 
-    void define(llvm::StringRef name, llvm::StringRef type);
+    bool define(llvm::StringRef name, llvm::StringRef type);
     llvm::StringRef get(Token name);
     int getIndex(llvm::StringRef name);
     int getIndex(Token name);
     int numVars() { return indexCount; }
+    EnvKind getKind() { return kind; }
+    Environment* getParent() { return parent; }
 };
 
 #endif

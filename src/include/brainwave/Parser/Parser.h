@@ -66,7 +66,7 @@ class Parser {
     std::unique_ptr<Expr> parseUnary();
     std::unique_ptr<Expr> parseGrouping();
     std::unique_ptr<Expr> parseBaseExpr();
-    std::unique_ptr<Expr> parseFunExpr();
+    std::unique_ptr<Expr> parseFunExpr(Token identifier);
     
     // STMTs
     std::unique_ptr<Stmt> parseStmt();

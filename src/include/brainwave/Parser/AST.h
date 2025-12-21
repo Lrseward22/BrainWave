@@ -2,6 +2,7 @@
 #define BRAINWAVE_AST_AST_H
 
 #include <brainwave/Utils/Token.h>
+#include <brainwave/Sema/Environment.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
@@ -39,31 +40,31 @@ class ASTVisitor {
     public:
         virtual void visit(AST &) {};
         // Expression ASTs
-        virtual void visitExpr(Expr &) = 0;
-        virtual void visitBinaryOp(BinaryOp &) = 0;
-        virtual void visitUnaryOp(UnaryOp &) = 0;
-        virtual void visitGrouping(Grouping &) = 0;
-        virtual void visitLiteral(Literal &) = 0;
-        virtual void visitVariable(Variable &) = 0;
-        virtual void visitLogical(Logical &) = 0;
-        virtual void visitAssign(Assign &) = 0;
-        virtual void visitFunExpr(FunExpr &) = 0;
+        virtual void visit(Expr &) {};
+        virtual void visit(BinaryOp &) = 0;
+        virtual void visit(UnaryOp &) = 0;
+        virtual void visit(Grouping &) = 0;
+        virtual void visit(Literal &) = 0;
+        virtual void visit(Variable &) = 0;
+        virtual void visit(Logical &) = 0;
+        virtual void visit(Assign &) = 0;
+        virtual void visit(FunExpr &) = 0;
 
         // Statement ASTs
-        virtual void visitStmt(Stmt &) = 0;
-        virtual void visitBlock(Block &) = 0;
-        virtual void visitPrint(Print &) = 0;
-        virtual void visitRead(Read &) = 0;
-        virtual void visitReturn(Return &) = 0;
-        virtual void visitIf(If &) = 0;
-        virtual void visitWhile(While &) = 0;
-        virtual void visitUntil(Until &) = 0;
-        virtual void visitFor(For &) = 0;
-        virtual void visitFun(FunStmt &) = 0;
-        virtual void visitClass(ClassStmt &) = 0;
-        virtual void visitImport(Import &) = 0;
-        virtual void visitDeclare(Declare &) = 0;
-        virtual void visitExprStmt(ExprStmt &) = 0;
+        virtual void visit(Stmt &) {};
+        virtual void visit(Block &) = 0;
+        virtual void visit(Print &) = 0;
+        virtual void visit(Read &) = 0;
+        virtual void visit(Return &) = 0;
+        virtual void visit(If &) = 0;
+        virtual void visit(While &) = 0;
+        virtual void visit(Until &) = 0;
+        virtual void visit(For &) = 0;
+        virtual void visit(FunStmt &) = 0;
+        virtual void visit(ClassStmt &) = 0;
+        virtual void visit(Import &) = 0;
+        virtual void visit(Declare &) = 0;
+        virtual void visit(ExprStmt &) = 0;
 };
 
 class AST {
@@ -225,6 +226,9 @@ class Stmt : public AST {
 };
 
 class Block : public Stmt {
+    public:
+    Environment* env;
+    private:
     llvm::SmallVector<std::unique_ptr<Stmt>, 256> stmts;
 
     public:
@@ -291,6 +295,10 @@ class Return : public Stmt {
 };
 
 class If : public Stmt {
+    public:
+    Environment* ifEnv;
+    Environment* elseEnv;
+    private:
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> ifStmt;
     std::unique_ptr<Stmt> elseStmt;
@@ -299,7 +307,7 @@ class If : public Stmt {
         If(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> ifStmt, std::unique_ptr<Stmt> elseStmt)
             : expr(std::move(expr)), ifStmt(std::move(ifStmt)), elseStmt(std::move(elseStmt)) {}
         Expr* getExpr() { return expr.get(); }
-        Stmt* getIf() { return ifStmt.get(); }
+        Stmt* getIfStmt() { return ifStmt.get(); }
         Stmt* getElseStmt() { return elseStmt.get(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -316,6 +324,9 @@ class If : public Stmt {
 };
 
 class While : public Stmt {
+    public:
+    Environment* env;
+    private:
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> stmt;
 
@@ -335,6 +346,9 @@ class While : public Stmt {
 };
 
 class Until : public Stmt {
+    public:
+    Environment* env;
+    private:
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> stmt;
 
@@ -354,6 +368,9 @@ class Until : public Stmt {
 };
 
 class For : public Stmt {
+    public:
+    Environment* env;
+    private:
     std::unique_ptr<Stmt> decl;
     std::unique_ptr<Expr> cond;
     std::unique_ptr<Expr> update;
@@ -380,6 +397,9 @@ class For : public Stmt {
 };
 
 class FunStmt : public Stmt {
+    public:
+    Environment* env;
+    private:
     Token identifier;
     llvm::SmallVector<std::unique_ptr<Stmt>, 256> params;
     Token type;
@@ -406,6 +426,9 @@ class FunStmt : public Stmt {
 //TODO
 class ClassStmt : public Stmt {
     Token string;
+    public:
+    Environment* env;
+    private:
 
     public:
         ClassStmt(const Token& string)

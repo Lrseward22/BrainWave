@@ -1,9 +1,12 @@
 #include <brainwave/Sema/Environment.h>
 
-void Environment::define(llvm::StringRef name, llvm::StringRef type) {
+bool Environment::define(llvm::StringRef name, llvm::StringRef type) {
     // Add error for redeclaration of variables (BAD)
+    if (typeMap.count(name))
+        return true;
     typeMap[name] = type;
     indexMap[name] = indexCount++;
+    return false;
 }
 
 llvm::StringRef Environment::get(Token name) {
@@ -11,7 +14,7 @@ llvm::StringRef Environment::get(Token name) {
         return typeMap[name.getLexeme()];
     else if (parent != nullptr)
         return parent->get(name);
-    //Add error: Variable isn't defined
+    // Error: Variable isn't defined
     return "";
 }
 

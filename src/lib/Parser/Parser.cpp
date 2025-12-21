@@ -156,7 +156,7 @@ std::unique_ptr<Expr> Parser::parseBaseExpr() {
     advance();
     if (tok.getKind() == tok::TokenKind::IDENTIFIER) {
         if (Tok.getKind() == tok::TokenKind::L_PAREN)
-            return parseFunExpr();
+            return parseFunExpr(tok);
         return std::make_unique<Variable>(tok);
     } else if (tok::isLiteral(tok.getKind()))
         return std::make_unique<Literal>(tok);
@@ -164,9 +164,7 @@ std::unique_ptr<Expr> Parser::parseBaseExpr() {
     return nullptr;
 }
 
-std::unique_ptr<Expr> Parser::parseFunExpr() {
-    Token identifier = Tok;
-    advance();
+std::unique_ptr<Expr> Parser::parseFunExpr(Token identifier) {
     consume(tok::TokenKind::L_PAREN);
     llvm::SmallVector<std::unique_ptr<Expr>, 256> params;
     // In fun expression, params can be identifiers or expressions
