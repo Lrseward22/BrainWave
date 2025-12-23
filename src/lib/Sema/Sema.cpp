@@ -92,14 +92,17 @@ public:
         popEnv();
     };
     virtual void visit(FunStmt &stmt) override { 
+        // Environment creation for function
         pushEnv(EnvKind::Function);
-
         for (const auto& s : stmt.getParams())
             s->accept(*this);
         stmt.getBody()->accept(*this);
-
         stmt.env = currEnv;
         popEnv();
+
+        // Register function in base environment
+        currEnv->defineFunc(stmt.getIdentifier().getIdentifier(), &stmt);
+        std::cout << "Defining Function: " << stmt.getIdentifier().getIdentifier().str() << " in environment: " << currEnv->getKind() << '\n';
     };
     virtual void visit(ClassStmt &stmt) override { 
         pushEnv(EnvKind::Class);
@@ -111,13 +114,19 @@ public:
     virtual void visit(Declare &stmt) override { 
         llvm::StringRef type = stmt.getType().getLexeme();
         stmt.getExpr()->accept(*this);
-        currEnv->define(iden, type);
+        currEnv->defineVar(iden, type);
         std::cout << "Defining: " << iden.str() << " in environment: " << currEnv->getKind() << '\n';
     };
     virtual void visit(ExprStmt &stmt) override { };
 };
 
 class TypeChecker : public ASTVisitor{
+    // Detects:
+    //      Expression types matching
+    //      Operator types match
+    //      Function call parameter types match declaration types
+    //      Return statement types match
+    //      Assignments match variable types
 
 public:
     void run(AST* Tree) {
@@ -151,6 +160,10 @@ public:
 };
 
 class ScopeResolution : public ASTVisitor{
+    // Detects:
+    //      undeclared variables,
+    //      undeclared functions,
+    //      duplicate declaration
 
 public:
     void run(AST* Tree) {
@@ -184,6 +197,11 @@ public:
 };
 
 class ControlFlow : public ASTVisitor{
+    // Detects:
+    //      Break/Continue inside loop
+    //      Return inside function
+    //      All paths return value
+    //      Optional: Unreachable code
 
 public:
     void run(AST* Tree) {
@@ -216,6 +234,10 @@ public:
     virtual void visit(ExprStmt &stmt) override { };
 };
 }
+
+// Another optional pass:
+//      Constants Folding
+//      Definite Assignment: Initialized variable before use
 
 std::unique_ptr<AST> Sema::next() {
     // Create all semantic pass visitors

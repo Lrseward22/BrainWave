@@ -2,7 +2,6 @@
 #define BRAINWAVE_AST_AST_H
 
 #include <brainwave/Utils/Token.h>
-#include <brainwave/Sema/Environment.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
@@ -10,6 +9,7 @@
 #include <string>
 
 class AST;
+class Environment;
 
 class Expr;
 class BinaryOp;

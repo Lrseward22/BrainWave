@@ -6,6 +6,8 @@
 #include "llvm/ADT/StringMap.h"
 #include <iostream>
 
+class AST;
+
 enum class EnvKind {
     Base,
     If,
@@ -30,6 +32,7 @@ inline std::ostream& operator<<(std::ostream& os, EnvKind k) {
 class Environment {
     Environment *parent;
     llvm::StringMap<llvm::StringRef> typeMap;
+    llvm::StringMap<AST*> funcMap;
     llvm::StringMap<int> indexMap;
     int indexCount = 0;
     EnvKind kind;
@@ -38,11 +41,13 @@ class Environment {
     Environment(EnvKind kind, Environment *parent) 
         : parent(parent), kind(kind) {}
 
-    bool define(llvm::StringRef name, llvm::StringRef type);
-    llvm::StringRef get(Token name);
+    bool defineVar(llvm::StringRef name, llvm::StringRef type);
+    llvm::StringRef getVar(Token name);
     int getIndex(llvm::StringRef name);
     int getIndex(Token name);
     int numVars() { return indexCount; }
+    bool defineFunc(llvm::StringRef name, AST* FuncAST);
+    AST* getFunc(llvm::StringRef funcName);
     EnvKind getKind() { return kind; }
     Environment* getParent() { return parent; }
 };
