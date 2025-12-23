@@ -5,13 +5,20 @@ using namespace brainwave;
 
 namespace {
 class EnvCreation : public ASTVisitor{
+    // Creates environments:
+    //      Defines declared Variables
+    //      Defines declared functions
+    //      Creates Scopes
+    brainwave::DiagnosticsEngine &Diag;
+    llvm::SmallVector<std::unique_ptr<Environment>>* envs;
     Environment* baseEnv;
     Environment* currEnv;
-    llvm::StringRef iden;
+    Token iden;
 
     void pushEnv(EnvKind kind) {
-        Environment* env = new Environment(kind, currEnv);
-        currEnv = env;
+        auto env = std::make_unique<Environment>(kind, currEnv);
+        currEnv = env.get();
+        envs->push_back(std::move(env));
     }
 
     void popEnv() {
@@ -19,9 +26,11 @@ class EnvCreation : public ASTVisitor{
     }
 
 public:
-    EnvCreation(Environment* baseEnv) : baseEnv(baseEnv) { }
+    EnvCreation(brainwave::DiagnosticsEngine &Diag, llvm::SmallVector<std::unique_ptr<Environment>>* envs)
+        : Diag(Diag), envs(envs) { }
 
-    void run(AST* Tree) {
+    void run(AST* Tree, Environment* base) {
+        baseEnv = base;
         currEnv = baseEnv;
         Tree->accept(*this);
     }
@@ -32,11 +41,11 @@ public:
     virtual void visit(Grouping &expr) override { };
     virtual void visit(Literal &expr) override { };
     virtual void visit(Variable &expr) override {
-        iden = expr.getData();
+        iden = expr.getIdentifier();
     };
     virtual void visit(Logical &expr) override { };
     virtual void visit(Assign &expr) override { 
-        iden = expr.getIdentifier().getIdentifier();
+        iden = expr.getIdentifier();
     };
     virtual void visit(FunExpr &expr) override { };
 
@@ -101,7 +110,10 @@ public:
         popEnv();
 
         // Register function in base environment
-        currEnv->defineFunc(stmt.getIdentifier().getIdentifier(), &stmt);
+        if (currEnv->defineFunc(stmt.getIdentifier().getIdentifier(), &stmt))
+            Diag.report(stmt.getIdentifier().getLocation(), 
+                        diag::err_func_redeclaration, 
+                        stmt.getIdentifier().getIdentifier());
         std::cout << "Defining Function: " << stmt.getIdentifier().getIdentifier().str() << " in environment: " << currEnv->getKind() << '\n';
     };
     virtual void visit(ClassStmt &stmt) override { 
@@ -114,8 +126,11 @@ public:
     virtual void visit(Declare &stmt) override { 
         llvm::StringRef type = stmt.getType().getLexeme();
         stmt.getExpr()->accept(*this);
-        currEnv->defineVar(iden, type);
-        std::cout << "Defining: " << iden.str() << " in environment: " << currEnv->getKind() << '\n';
+        if (currEnv->defineVar(iden.getIdentifier(), type))
+            Diag.report(iden.getLocation(), 
+                        diag::err_iden_redeclaration, 
+                        iden.getIdentifier());
+        std::cout << "Defining: " << iden.getIdentifier().str() << " in environment: " << currEnv->getKind() << '\n';
     };
     virtual void visit(ExprStmt &stmt) override { };
 };
@@ -127,8 +142,11 @@ class TypeChecker : public ASTVisitor{
     //      Function call parameter types match declaration types
     //      Return statement types match
     //      Assignments match variable types
+    brainwave::DiagnosticsEngine &Diag;
 
 public:
+    TypeChecker(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
+
     void run(AST* Tree) {
         Tree->accept(*this);
     }
@@ -164,8 +182,11 @@ class ScopeResolution : public ASTVisitor{
     //      undeclared variables,
     //      undeclared functions,
     //      duplicate declaration
+    brainwave::DiagnosticsEngine &Diag;
 
 public:
+    ScopeResolution(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
+
     void run(AST* Tree) {
         Tree->accept(*this);
     }
@@ -202,8 +223,11 @@ class ControlFlow : public ASTVisitor{
     //      Return inside function
     //      All paths return value
     //      Optional: Unreachable code
+    brainwave::DiagnosticsEngine &Diag;
 
 public:
+    ControlFlow(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
+
     void run(AST* Tree) {
         Tree->accept(*this);
     }
@@ -235,7 +259,7 @@ public:
 };
 }
 
-// Another optional pass:
+// Other optional passes:
 //      Constants Folding
 //      Definite Assignment: Initialized variable before use
 
@@ -244,11 +268,11 @@ std::unique_ptr<AST> Sema::next() {
     // get next ast
     // feed it into all passes
     std::unique_ptr<AST> ast = std::move(P.parse());
-    EnvCreation EnvC(currEnv);
+    EnvCreation EnvC(getDiagnostics(), &envs);
     while (ast) {
         ast->print();
         std::cout << "\n";
-        EnvC.run(ast.get());
+        EnvC.run(ast.get(), currEnv);
         ast = P.parse();
     }
     return std::move(ast);

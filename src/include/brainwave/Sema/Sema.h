@@ -8,6 +8,7 @@ class Sema {
     Parser &P;
     Environment env;
     Environment* currEnv;
+    llvm::SmallVector<std::unique_ptr<Environment>> envs;
 
     public:
     Sema(Parser &P) : P(P), env(Environment(EnvKind::Base, nullptr)) { 

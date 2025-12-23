@@ -2,13 +2,16 @@
 #define DIAG(ID, Level, Msg)
 #endif
 
-DIAG(err_sym_declared, Error, "symbol {0} already declared")
-DIAG(err_unterminated_char, Error, "Missing termination of {0} character")
-DIAG(err_malformed_float, Error, "Malformed float literal")
-DIAG(err_illegal_char, Error, "Illegal Character")
+DIAG(err_sym_declared,          Error, "symbol {0} already declared")
+DIAG(err_unterminated_char,     Error, "Missing termination of {0} character")
+DIAG(err_malformed_float,       Error, "Malformed float literal")
+DIAG(err_illegal_char,          Error, "Illegal Character")
 
-DIAG(err_unexpected_token, Error, "Unexpected {0}, expected {1}")
-DIAG(err_unmatched_char, Error, "Unmatched character {0}")
-DIAG(err_invalid_expr, Error, "Invalid expression")
-DIAG(err_invalid_return_type, Error, "Invalid function return type")
+DIAG(err_unexpected_token,      Error, "Unexpected {0}, expected {1}")
+DIAG(err_unmatched_char,        Error, "Unmatched character {0}")
+DIAG(err_invalid_expr,          Error, "Invalid expression")
+DIAG(err_invalid_return_type,   Error, "Invalid function return type")
+
+DIAG(err_iden_redeclaration,    Error, "Illegal redeclaration of variable: {0}")
+DIAG(err_func_redeclaration,    Error, "Illegal redeclaration of function: {0}")
 #undef DIAG

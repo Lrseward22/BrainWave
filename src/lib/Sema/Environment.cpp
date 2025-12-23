@@ -1,7 +1,6 @@
 #include <brainwave/Sema/Environment.h>
 
 bool Environment::defineVar(llvm::StringRef name, llvm::StringRef type) {
-    // Add error for redeclaration of variables (BAD)
     if (typeMap.count(name))
         return true;
     typeMap[name] = type;
@@ -19,8 +18,7 @@ llvm::StringRef Environment::getVar(Token name) {
 }
 
 bool Environment::defineFunc(llvm::StringRef name, AST* funcAST) {
-    // Add error for redeclaration of Function (BAD)
-    if (typeMap.count(name))
+    if (funcMap.count(name))
         return true;
     funcMap[name] = funcAST;
     return false;

@@ -153,6 +153,7 @@ class Variable : public Expr {
 
     public:
         Variable(const Token& tok) : identifier(tok) {}
+        Token getIdentifier() { return identifier; }
         llvm::StringRef getData() { return identifier.getIdentifier(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
