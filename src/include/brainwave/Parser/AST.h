@@ -212,6 +212,7 @@ class FunExpr : public Expr {
     public:
         FunExpr(const Token& tok, llvm::SmallVector<std::unique_ptr<Expr>, 256> &paramslst)
             : identifier(tok), params(std::move(paramslst)) {}
+        Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Expr>, 256> &getParams() { return params; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);

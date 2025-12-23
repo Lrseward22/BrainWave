@@ -36,18 +36,31 @@ public:
     }
 
     // Expression ASTs
-    virtual void visit(BinaryOp &expr) override { };
-    virtual void visit(UnaryOp &expr) override { };
-    virtual void visit(Grouping &expr) override { };
+    virtual void visit(BinaryOp &expr) override { 
+        expr.getLeft()->accept(*this);
+        expr.getRight()->accept(*this);
+    };
+    virtual void visit(UnaryOp &expr) override {
+        expr.getExpr()->accept(*this);
+    };
+    virtual void visit(Grouping &expr) override {
+        expr.getExpr()->accept(*this);
+    };
     virtual void visit(Literal &expr) override { };
     virtual void visit(Variable &expr) override {
         iden = expr.getIdentifier();
     };
-    virtual void visit(Logical &expr) override { };
+    virtual void visit(Logical &expr) override {
+        expr.getLeft()->accept(*this);
+        expr.getRight()->accept(*this);
+    };
     virtual void visit(Assign &expr) override { 
         iden = expr.getIdentifier();
     };
-    virtual void visit(FunExpr &expr) override { };
+    virtual void visit(FunExpr &expr) override { 
+        for (const auto& p: expr.getParams())
+            p->accept(*this);
+    };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
@@ -114,7 +127,6 @@ public:
             Diag.report(stmt.getIdentifier().getLocation(), 
                         diag::err_func_redeclaration, 
                         stmt.getIdentifier().getIdentifier());
-        std::cout << "Defining Function: " << stmt.getIdentifier().getIdentifier().str() << " in environment: " << currEnv->getKind() << '\n';
     };
     virtual void visit(ClassStmt &stmt) override { 
         pushEnv(EnvKind::Class);
@@ -130,9 +142,10 @@ public:
             Diag.report(iden.getLocation(), 
                         diag::err_iden_redeclaration, 
                         iden.getIdentifier());
-        std::cout << "Defining: " << iden.getIdentifier().str() << " in environment: " << currEnv->getKind() << '\n';
     };
-    virtual void visit(ExprStmt &stmt) override { };
+    virtual void visit(ExprStmt &stmt) override { 
+        stmt.getExpr()->accept(*this);
+    };
 };
 
 class TypeChecker : public ASTVisitor{
@@ -181,40 +194,110 @@ class ScopeResolution : public ASTVisitor{
     // Detects:
     //      undeclared variables,
     //      undeclared functions,
-    //      duplicate declaration
     brainwave::DiagnosticsEngine &Diag;
+    Environment* env;
 
 public:
     ScopeResolution(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
 
-    void run(AST* Tree) {
+    void run(AST* Tree, Environment* e) {
+        env = e;
         Tree->accept(*this);
     }
 
     // Expression ASTs
-    virtual void visit(BinaryOp &expr) override { };
-    virtual void visit(UnaryOp &expr) override { };
-    virtual void visit(Grouping &expr) override { };
+    virtual void visit(BinaryOp &expr) override { 
+        expr.getLeft()->accept(*this);
+        expr.getRight()->accept(*this);
+    };
+    virtual void visit(UnaryOp &expr) override {
+        expr.getExpr()->accept(*this);
+    };
+    virtual void visit(Grouping &expr) override {
+        expr.getExpr()->accept(*this);
+    };
     virtual void visit(Literal &expr) override { };
-    virtual void visit(Variable &expr) override { };
-    virtual void visit(Logical &expr) override { };
-    virtual void visit(Assign &expr) override { };
-    virtual void visit(FunExpr &expr) override { };
+    virtual void visit(Variable &expr) override {
+        if (env->getVar(expr.getIdentifier()) == "")
+            Diag.report(expr.getIdentifier().getLocation(),
+                        diag::err_iden_undeclared, 
+                        expr.getData());
+    };
+    virtual void visit(Logical &expr) override {
+        expr.getLeft()->accept(*this);
+        expr.getRight()->accept(*this);
+    };
+    virtual void visit(Assign &expr) override {
+        if (env->getVar(expr.getIdentifier()) == "")
+            Diag.report(expr.getIdentifier().getLocation(),
+                        diag::err_iden_undeclared, 
+                        expr.getIdentifier().getIdentifier());
+    };
+    virtual void visit(FunExpr &expr) override { 
+        FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
+        if (func == nullptr)
+            Diag.report(expr.getIdentifier().getLocation(),
+                        diag::err_func_undeclared, 
+                        expr.getIdentifier().getIdentifier());
+        for (const auto& p: expr.getParams())
+            p->accept(*this);
+    };
 
     // Statement ASTs
-    virtual void visit(Block &stmt) override { };
-    virtual void visit(Print &stmt) override { };
-    virtual void visit(Read &stmt) override { };
-    virtual void visit(Return &stmt) override { };
-    virtual void visit(If &stmt) override { };
-    virtual void visit(While &stmt) override { };
-    virtual void visit(Until &stmt) override { };
-    virtual void visit(For &stmt) override { };
-    virtual void visit(FunStmt &stmt) override { };
+    virtual void visit(Block &stmt) override {
+        env = stmt.env;
+        for (const auto& s: stmt.getStmts())
+            s->accept(*this);
+    };
+    virtual void visit(Print &stmt) override { 
+        stmt.getExpr()->accept(*this);
+    };
+    virtual void visit(Read &stmt) override {
+        if (env->getVar(stmt.getIdentifier()) == "")
+            Diag.report(stmt.getIdentifier().getLocation(),
+                        diag::err_iden_undeclared, 
+                        stmt.getIdentifier().getIdentifier());
+    };
+    virtual void visit(Return &stmt) override { 
+        stmt.getExpr()->accept(*this);
+    };
+    virtual void visit(If &stmt) override { 
+        env = stmt.ifEnv;
+        stmt.getExpr()->accept(*this);
+        stmt.getIfStmt()->accept(*this);
+        if (stmt.getElseStmt()) {
+            env = stmt.elseEnv;
+            stmt.getElseStmt()->accept(*this);
+        }
+    };
+    virtual void visit(While &stmt) override { 
+        env = stmt.env;
+        stmt.getExpr()->accept(*this);
+        stmt.getStmt()->accept(*this);
+    };
+    virtual void visit(Until &stmt) override {
+        env = stmt.env;
+        stmt.getExpr()->accept(*this);
+        stmt.getStmt()->accept(*this);
+    };
+    virtual void visit(For &stmt) override {
+        env = stmt.env;
+        stmt.getCond()->accept(*this);
+        stmt.getUpdate()->accept(*this);
+        stmt.getStmt()->accept(*this);
+    };
+    virtual void visit(FunStmt &stmt) override {
+        env = stmt.env;
+        stmt.getBody()->accept(*this);
+    };
     virtual void visit(ClassStmt &stmt) override { };
     virtual void visit(Import &stmt) override { };
-    virtual void visit(Declare &stmt) override { };
-    virtual void visit(ExprStmt &stmt) override { };
+    virtual void visit(Declare &stmt) override {
+        stmt.getExpr()->accept(*this);
+    };
+    virtual void visit(ExprStmt &stmt) override {
+        stmt.getExpr()->accept(*this);
+    };
 };
 
 class ControlFlow : public ASTVisitor{
@@ -269,10 +352,12 @@ std::unique_ptr<AST> Sema::next() {
     // feed it into all passes
     std::unique_ptr<AST> ast = std::move(P.parse());
     EnvCreation EnvC(getDiagnostics(), &envs);
+    ScopeResolution ScoRe(getDiagnostics());
     while (ast) {
         ast->print();
         std::cout << "\n";
         EnvC.run(ast.get(), currEnv);
+        ScoRe.run(ast.get(), currEnv);
         ast = P.parse();
     }
     return std::move(ast);

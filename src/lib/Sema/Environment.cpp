@@ -17,14 +17,14 @@ llvm::StringRef Environment::getVar(Token name) {
     return "";
 }
 
-bool Environment::defineFunc(llvm::StringRef name, AST* funcAST) {
+bool Environment::defineFunc(llvm::StringRef name, FunStmt* funcAST) {
     if (funcMap.count(name))
         return true;
     funcMap[name] = funcAST;
     return false;
 }
 
-AST* Environment::getFunc(llvm::StringRef name) {
+FunStmt* Environment::getFunc(llvm::StringRef name) {
     if (funcMap.count(name))
         return funcMap[name];
     else if (parent != nullptr)

@@ -14,4 +14,6 @@ DIAG(err_invalid_return_type,   Error, "Invalid function return type")
 
 DIAG(err_iden_redeclaration,    Error, "Illegal redeclaration of variable: {0}")
 DIAG(err_func_redeclaration,    Error, "Illegal redeclaration of function: {0}")
+DIAG(err_iden_undeclared,       Error, "Undeclared variable: {0}")
+DIAG(err_func_undeclared,       Error, "Undeclared function: {0}")
 #undef DIAG
