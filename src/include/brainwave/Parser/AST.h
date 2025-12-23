@@ -217,6 +217,8 @@ class FunExpr : public Expr {
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ")" << std::endl;
+            for (auto& param : params)
+                param->print(indent+2);
         }
 };
 
@@ -417,8 +419,11 @@ class FunStmt : public Stmt {
             V.visit(*this);
         }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Fun stmt: " << identifier.getIdentifier().str() << std::endl;
-            std::cout << std::string(indent+2, ' ') << type.getLexeme().str() << std::endl;
+            std::cout << std::string(indent, ' ') << "Fun stmt: " << type.getLexeme().str() << " " << identifier.getIdentifier().str() << std::endl;
+            std::cout << std::string(indent+2, ' ') << "Parameters: ";
+            for (auto& param : params)
+                param->print(indent+2);
+            std::cout << '\n';
             if (body) body->print(indent+2);
         }
 };

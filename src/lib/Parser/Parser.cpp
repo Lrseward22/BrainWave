@@ -365,7 +365,7 @@ std::unique_ptr<Stmt> Parser::parseDeclare() {
 std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
     Token type = Tok;
     advance();
-    std::unique_ptr<Expr> expr = parseExpression();
+    std::unique_ptr<Expr> expr = parseAssign();
     panic();
     consume(tok::TokenKind::SEMI);
     return std::make_unique<Declare>(type, std::move(expr));

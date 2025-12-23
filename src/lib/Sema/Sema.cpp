@@ -21,7 +21,7 @@ class EnvCreation : public ASTVisitor{
 public:
     EnvCreation(Environment* baseEnv) : baseEnv(baseEnv) { }
 
-    void run(std::unique_ptr<AST> Tree) {
+    void run(AST* Tree) {
         currEnv = baseEnv;
         Tree->accept(*this);
     }
@@ -31,7 +31,9 @@ public:
     virtual void visit(UnaryOp &expr) override { };
     virtual void visit(Grouping &expr) override { };
     virtual void visit(Literal &expr) override { };
-    virtual void visit(Variable &expr) override { };
+    virtual void visit(Variable &expr) override {
+        iden = expr.getData();
+    };
     virtual void visit(Logical &expr) override { };
     virtual void visit(Assign &expr) override { 
         iden = expr.getIdentifier().getIdentifier();
@@ -57,10 +59,12 @@ public:
         stmt.ifEnv = currEnv;
         popEnv();
 
-        pushEnv(EnvKind::If);
-        stmt.getElseStmt()->accept(*this);
-        stmt.elseEnv = currEnv;
-        popEnv();
+        if (stmt.getElseStmt()) {
+            pushEnv(EnvKind::If);
+            stmt.getElseStmt()->accept(*this);
+            stmt.elseEnv = currEnv;
+            popEnv();
+        }
     };
     virtual void visit(While &stmt) override { 
         pushEnv(EnvKind::Loop);
@@ -108,6 +112,7 @@ public:
         llvm::StringRef type = stmt.getType().getLexeme();
         stmt.getExpr()->accept(*this);
         currEnv->define(iden, type);
+        std::cout << "Defining: " << iden.str() << " in environment: " << currEnv->getKind() << '\n';
     };
     virtual void visit(ExprStmt &stmt) override { };
 };
@@ -115,7 +120,7 @@ public:
 class TypeChecker : public ASTVisitor{
 
 public:
-    void run(std::unique_ptr<AST> Tree) {
+    void run(AST* Tree) {
         Tree->accept(*this);
     }
 
@@ -148,7 +153,7 @@ public:
 class ScopeResolution : public ASTVisitor{
 
 public:
-    void run(std::unique_ptr<AST> Tree) {
+    void run(AST* Tree) {
         Tree->accept(*this);
     }
 
@@ -181,7 +186,7 @@ public:
 class ControlFlow : public ASTVisitor{
 
 public:
-    void run(std::unique_ptr<AST> Tree) {
+    void run(AST* Tree) {
         Tree->accept(*this);
     }
 
@@ -216,10 +221,12 @@ std::unique_ptr<AST> Sema::next() {
     // Create all semantic pass visitors
     // get next ast
     // feed it into all passes
-    ast = P.parse();
+    std::unique_ptr<AST> ast = std::move(P.parse());
+    EnvCreation EnvC(currEnv);
     while (ast) {
         ast->print();
         std::cout << "\n";
+        EnvC.run(ast.get());
         ast = P.parse();
     }
     return std::move(ast);

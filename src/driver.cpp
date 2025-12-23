@@ -71,7 +71,7 @@ llvm::TargetMachine* createTargetMachine(const char* Argv0) {
     }
 
     std::optional<llvm::Reloc::Model> RelocModel = llvm::codegen::getRelocModel();
-    if (!RelocModel) 
+    if (!llvm::codegen::getExplicitRelocModel()) 
         RelocModel = llvm::Reloc::PIC_;
     llvm::TargetMachine* TM = Target->createTargetMachine(
             Triple.getTriple(), CPUStr, FeatureStr,
@@ -129,7 +129,8 @@ bool emit(llvm::StringRef Argv0, llvm::Module *M,
 
 bool linkExecutable(llvm::StringRef Argv0, llvm::StringRef ObjectFile, llvm::StringRef OutputFile) {
     // Use system linker (gcc or clang)
-    std::string LinkerCmd = "gcc -no-pie ";
+    //std::string LinkerCmd = "gcc -no-pie ";
+    std::string LinkerCmd = "gcc ";
     LinkerCmd += ObjectFile.str();
     LinkerCmd += " -o ";
     LinkerCmd += OutputFile.str();

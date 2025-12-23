@@ -6,7 +6,6 @@
 
 class Sema {
     Parser &P;
-    std::unique_ptr<AST> ast;
     Environment env;
     Environment* currEnv;
 
