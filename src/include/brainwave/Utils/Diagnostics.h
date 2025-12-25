@@ -16,6 +16,7 @@ namespace brainwave {
     enum {
     #define DIAG(ID, Level, Msg) ID,
     #include "Diagnostics.def"
+    #undef DIAG
     };
     } // Namespace diag
 

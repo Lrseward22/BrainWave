@@ -20,6 +20,7 @@ class Variable;
 class Logical;
 class Assign;
 class FunExpr;
+class Cast;
 
 class Stmt;
 class Block;
@@ -49,6 +50,7 @@ class ASTVisitor {
         virtual void visit(Logical &) = 0;
         virtual void visit(Assign &) = 0;
         virtual void visit(FunExpr &) = 0;
+        virtual void visit(Cast &) = 0;
 
         // Statement ASTs
         virtual void visit(Stmt &) {};
@@ -68,15 +70,25 @@ class ASTVisitor {
 };
 
 class AST {
-    public:
-        virtual ~AST() {}
-        virtual void accept(ASTVisitor &V) = 0;
-        virtual void print(int indent = 0) = 0;
+public:
+    enum Kind {
+        FunKind, ClassKind, StmtKind, ExprKind
+    };
+
+private:
+    Kind K;
+    
+public:
+    AST(Kind K) : K(K) { }
+    virtual ~AST() {}
+    virtual void accept(ASTVisitor &V) = 0;
+    Kind getKind() const { return K; }
+    virtual void print(int indent = 0) = 0;
 };
 
 class Expr : public AST {
     public:
-        Expr() {}
+        Expr(Kind K) : AST(K) {}
 };
 
 // TermExpr, FactorExpr, BoolExpr
@@ -87,12 +99,19 @@ class BinaryOp : public Expr {
 
     public:
         BinaryOp(std::unique_ptr<Expr> left, const Token& op, std::unique_ptr<Expr> right) 
-            : left(std::move(left)), op(op), right(std::move(right)) {}
+            : Expr(ExprKind), left(std::move(left)), op(op), right(std::move(right)) {}
         Expr* getLeft() { return left.get(); }
         Expr* getRight() { return right.get(); }
+        std::unique_ptr<Expr> getLeftUnique() { return std::move(left); }
+        std::unique_ptr<Expr> getRightUnique() { return std::move(right); }
+        void setLeft(std::unique_ptr<Expr> l) { left = std::move(l); }
+        void setRight(std::unique_ptr<Expr> r) { right = std::move(r); }
         Token getOp() { return op; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Binary Op: (" << op.getLexeme().str() << ")" << std::endl;
@@ -107,11 +126,14 @@ class UnaryOp : public Expr {
 
     public:
         UnaryOp(const Token& op, std::unique_ptr<Expr> expr)
-            : op(op), expr(std::move(expr)) {}
+            : Expr(ExprKind), op(op), expr(std::move(expr)) {}
         Token getOp() { return op; }
         Expr* getExpr() { return expr.get(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Unary Op: (" << op.getLexeme().str() << ")" << std::endl;
@@ -123,10 +145,13 @@ class Grouping : public Expr {
     std::unique_ptr<Expr> expr;
 
     public:
-        Grouping(std::unique_ptr<Expr> expr) : expr(std::move(expr)) {}
+        Grouping(std::unique_ptr<Expr> expr) : Expr(ExprKind), expr(std::move(expr)) {}
         Expr* getExpr() { return expr.get(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Grouping:" << std::endl;
@@ -138,10 +163,14 @@ class Literal : public Expr {
     Token literal;
 
     public:
-        Literal(const Token& tok) : literal(tok) {}
+        Literal(const Token& tok) : Expr(ExprKind), literal(tok) {}
+        Token getTok() { return literal; }
         llvm::StringRef getData() { return literal.getLiteralData(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Literal: (" << literal.getLiteralData().str() << ')' << std::endl;
@@ -152,11 +181,14 @@ class Variable : public Expr {
     Token identifier;
 
     public:
-        Variable(const Token& tok) : identifier(tok) {}
+        Variable(const Token& tok) : Expr(ExprKind), identifier(tok) {}
         Token getIdentifier() { return identifier; }
         llvm::StringRef getData() { return identifier.getIdentifier(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ')' << std::endl;
@@ -170,12 +202,19 @@ class Logical : public Expr {
 
     public:
         Logical(std::unique_ptr<Expr> left, const Token& op, std::unique_ptr<Expr> right) 
-            : left(std::move(left)), op(op), right(std::move(right)) {}
+            : Expr(ExprKind), left(std::move(left)), op(op), right(std::move(right)) {}
         Expr* getLeft() { return left.get(); }
         Expr* getRight() { return right.get(); }
+        std::unique_ptr<Expr> getLeftUnique() { return std::move(left); }
+        std::unique_ptr<Expr> getRightUnique() { return std::move(right); }
+        void setLeft(std::unique_ptr<Expr> l) { left = std::move(l); }
+        void setRight(std::unique_ptr<Expr> r) { right = std::move(r); }
         Token getOp() { return op; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Logical: (" << op.getLexeme().str() << ")" << std::endl;
@@ -191,12 +230,17 @@ class Assign : public Expr {
 
     public:
         Assign(Token identifier, const Token& op, std::unique_ptr<Expr> expr)
-            : identifier(identifier), op(op), expr(std::move(expr)) {}
+            : Expr(ExprKind), identifier(identifier), op(op), expr(std::move(expr)) {}
         Token getIdentifier() { return identifier; }
         Token getOp() { return op; }
         Expr* getExpr() { return expr.get(); }
+        std::unique_ptr<Expr> getUnique() { return std::move(expr); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Assign: (" << identifier.getIdentifier().str() << ")" << std::endl;
@@ -211,11 +255,14 @@ class FunExpr : public Expr {
 
     public:
         FunExpr(const Token& tok, llvm::SmallVector<std::unique_ptr<Expr>, 256> &paramslst)
-            : identifier(tok), params(std::move(paramslst)) {}
+            : Expr(ExprKind), identifier(tok), params(std::move(paramslst)) {}
         Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Expr>, 256> &getParams() { return params; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ")" << std::endl;
@@ -224,9 +271,31 @@ class FunExpr : public Expr {
         }
 };
 
+class Cast : public Expr {
+    std::unique_ptr<Expr> Value;
+    std::string type;
+
+    public:
+        Cast(std::unique_ptr<Expr> expr, std::string type)
+            : Expr(ExprKind), Value(std::move(expr)), type(type) {}
+        Expr* getExpr() { return Value.get(); }
+        std::string getType() { return type; }
+        virtual void accept(ASTVisitor &V) override {
+            V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ExprKind;
+        }
+        virtual void print(int indent = 0) override {
+            std::cout << std::string(indent, ' ') << "Cast:" << std::endl;
+            if (Value) Value->print(indent + 2);
+            std::cout << std::string(indent+2, ' ') << "to " << type << std::endl;
+        }
+};
+
 class Stmt : public AST {
     public:
-        Stmt() {}
+        Stmt(Kind K) : AST(K) {}
 };
 
 class Block : public Stmt {
@@ -237,10 +306,13 @@ class Block : public Stmt {
 
     public:
         Block(llvm::SmallVector<std::unique_ptr<Stmt>, 256> &stmtlst) 
-            : stmts(std::move(stmtlst)) {}
+            : Stmt(StmtKind), stmts(std::move(stmtlst)) {}
         llvm::SmallVector<std::unique_ptr<Stmt>, 256> &getStmts() { return stmts; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Block: " << std::endl;
@@ -251,15 +323,39 @@ class Block : public Stmt {
         }
 };
 
+class Declare : public Stmt {
+    Token type;
+    std::unique_ptr<Expr> expr;
+
+    public:
+        Declare(const Token& type, std::unique_ptr<Expr> expr)
+            : Stmt(StmtKind), type(type), expr(std::move(expr)) {}
+        Token getType() { return type; }
+        Expr* getExpr() { return expr.get(); }
+        virtual void accept(ASTVisitor &V) override {
+            V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
+        }
+        virtual void print(int indent = 0) override {
+            std::cout << std::string(indent, ' ') << "Declare: (" << type.getLexeme().str() << ")\n";
+            if (expr) expr->print(indent + 2);
+        }
+};
+
 class Print : public Stmt {
     std::unique_ptr<Expr> expr;
 
     public:
         Print(std::unique_ptr<Expr> expr)
-            : expr(std::move(expr)) {}
+            : Stmt(StmtKind), expr(std::move(expr)) {}
         Expr* getExpr() { return expr.get(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Print: " << std::endl;
@@ -272,10 +368,13 @@ class Read : public Stmt {
 
     public:
         Read(const Token& identifier)
-            : identifier(identifier) {}
+            : Stmt(StmtKind), identifier(identifier) {}
         Token getIdentifier() { return identifier; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Read: " << identifier.getLexeme().str() << std::endl;
@@ -284,13 +383,18 @@ class Read : public Stmt {
 
 class Return : public Stmt {
     std::unique_ptr<Expr> expr;
+    llvm::SMLoc loc;
 
     public:
-        Return(std::unique_ptr<Expr> expr)
-            : expr(std::move(expr)) {}
+        Return(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
+            : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Return: " << std::endl;
@@ -306,15 +410,22 @@ class If : public Stmt {
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> ifStmt;
     std::unique_ptr<Stmt> elseStmt;
+    llvm::SMLoc loc;
 
     public:
-        If(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> ifStmt, std::unique_ptr<Stmt> elseStmt)
-            : expr(std::move(expr)), ifStmt(std::move(ifStmt)), elseStmt(std::move(elseStmt)) {}
+        If(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> ifStmt,
+                std::unique_ptr<Stmt> elseStmt, llvm::SMLoc loc)
+            : Stmt(StmtKind), expr(std::move(expr)), ifStmt(std::move(ifStmt)),
+            elseStmt(std::move(elseStmt)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
         Stmt* getIfStmt() { return ifStmt.get(); }
         Stmt* getElseStmt() { return elseStmt.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "IF: ";
@@ -333,14 +444,19 @@ class While : public Stmt {
     private:
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> stmt;
+    llvm::SMLoc loc;
 
     public:
-        While(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> stmt)
-            : expr(std::move(expr)), stmt(std::move(stmt)) {}
+        While(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> stmt, llvm::SMLoc loc)
+            : Stmt(StmtKind), expr(std::move(expr)), stmt(std::move(stmt)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
         Stmt* getStmt() { return stmt.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "While: ";
@@ -355,14 +471,19 @@ class Until : public Stmt {
     private:
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> stmt;
+    llvm::SMLoc loc;
 
     public:
-        Until(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> stmt)
-            : expr(std::move(expr)), stmt(std::move(stmt)) {}
+        Until(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> stmt, llvm::SMLoc loc)
+            : Stmt(StmtKind), expr(std::move(expr)), stmt(std::move(stmt)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
         Stmt* getStmt() { return stmt.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Until: ";
@@ -379,17 +500,24 @@ class For : public Stmt {
     std::unique_ptr<Expr> cond;
     std::unique_ptr<Expr> update;
     std::unique_ptr<Stmt> stmt;
+    llvm::SMLoc loc;
     
 
     public:
-        For(std::unique_ptr<Stmt> decl, std::unique_ptr<Expr> cond, std::unique_ptr<Expr> change, std::unique_ptr<Stmt> stmt)
-            : decl(std::move(decl)), cond(std::move(cond)), update(std::move(change)), stmt(std::move(stmt)) {}
+        For(std::unique_ptr<Stmt> decl, std::unique_ptr<Expr> cond, std::unique_ptr<Expr> change,
+                std::unique_ptr<Stmt> stmt, llvm::SMLoc loc)
+            : Stmt(StmtKind), decl(std::move(decl)), cond(std::move(cond)),
+            update(std::move(change)), stmt(std::move(stmt)), loc(loc) {}
         Stmt* getDecl() { return decl.get(); }
         Expr* getCond() { return cond.get(); }
         Expr* getUpdate() { return update.get(); }
         Stmt* getStmt() { return stmt.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "For: " << std::endl;
@@ -405,20 +533,23 @@ class FunStmt : public Stmt {
     Environment* env;
     private:
     Token identifier;
-    llvm::SmallVector<std::unique_ptr<Stmt>, 256> params;
+    llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
     Token type;
     std::unique_ptr<Stmt> body;
 
     public:
-        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Stmt>, 256> &params,
+        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
                 const Token& type, std::unique_ptr<Stmt> body)
-            : identifier(tok), params(std::move(params)), type(type), body(std::move(body)) {}
+            : Stmt(FunKind), identifier(tok), params(std::move(params)), type(type), body(std::move(body)) {}
         Token getIdentifier() { return identifier; }
-        llvm::SmallVector<std::unique_ptr<Stmt>, 256> &getParams() { return params; }
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> &getParams() { return params; }
         Token getType() { return type; }
         Stmt* getBody() { return body.get(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == FunKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Fun stmt: " << type.getLexeme().str() << " " << identifier.getIdentifier().str() << std::endl;
@@ -439,10 +570,13 @@ class ClassStmt : public Stmt {
 
     public:
         ClassStmt(const Token& string)
-            : string(string) {}
+            : Stmt(ClassKind), string(string) {}
         Token getString() { return string; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == ClassKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Import: " << string.getLexeme().str() << std::endl;
@@ -454,31 +588,16 @@ class Import : public Stmt {
 
     public:
         Import(const Token& string)
-            : string(string) {}
+            : Stmt(StmtKind), string(string) {}
         Token getString() { return string; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
+        }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Import: " << string.getLexeme().str() << std::endl;
-        }
-};
-
-class Declare : public Stmt {
-    Token type;
-    std::unique_ptr<Expr> expr;
-
-    public:
-        Declare(const Token& type, std::unique_ptr<Expr> expr)
-            : type(type), expr(std::move(expr)) {}
-        Token getType() { return type; }
-        Expr* getExpr() { return expr.get(); }
-        virtual void accept(ASTVisitor &V) override {
-            V.visit(*this);
-        }
-        virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Declare: (" << type.getLexeme().str() << ")\n";
-            if (expr) expr->print(indent + 2);
         }
 };
 
@@ -486,10 +605,14 @@ class ExprStmt : public Stmt {
     std::unique_ptr<Expr> expr;
 
     public:
-        ExprStmt(std::unique_ptr<Expr> expr) : expr(std::move(expr)) {}
+        ExprStmt(std::unique_ptr<Expr> expr)
+            : Stmt(StmtKind), expr(std::move(expr)) {}
         Expr* getExpr() { return expr.get(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Expr: \n";

@@ -158,7 +158,8 @@ std::unique_ptr<Expr> Parser::parseBaseExpr() {
         if (Tok.getKind() == tok::TokenKind::L_PAREN)
             return parseFunExpr(tok);
         return std::make_unique<Variable>(tok);
-    } else if (tok::isLiteral(tok.getKind()))
+    } else if (tok::isLiteral(tok.getKind()) 
+            || tok.isOneOf(tok::TokenKind::kw_true, tok::TokenKind::kw_false))
         return std::make_unique<Literal>(tok);
     InvalidExprError();
     return nullptr;
@@ -246,11 +247,12 @@ std::unique_ptr<Stmt> Parser::parseRead() {
 
 std::unique_ptr<Stmt> Parser::parseReturn() {
     std::unique_ptr<Expr> expr;
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_return);
     expr = parseExpression();
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Return>(std::move(expr));
+    return std::make_unique<Return>(std::move(expr), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseIf() {
@@ -258,35 +260,38 @@ std::unique_ptr<Stmt> Parser::parseIf() {
     std::unique_ptr<Stmt> ifStmt;
     std::unique_ptr<Stmt> elseStmt;
 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_if);
     expr = parseBoolExpr();
     ifStmt = parseStmt();
     if (match(tok::TokenKind::kw_else))
         elseStmt = parseStmt();
     
-    return std::make_unique<If>(std::move(expr), std::move(ifStmt), std::move(elseStmt));
+    return std::make_unique<If>(std::move(expr), std::move(ifStmt), std::move(elseStmt), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseWhile() { 
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> stmt;
 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_while);
     expr = parseBoolExpr();
     stmt = parseStmt();
 
-    return std::make_unique<While>(std::move(expr), std::move(stmt));
+    return std::make_unique<While>(std::move(expr), std::move(stmt), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseUntil() { 
     std::unique_ptr<Expr> expr;
     std::unique_ptr<Stmt> stmt;
 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_until);
     expr = parseBoolExpr();
     stmt = parseStmt();
 
-    return std::make_unique<Until>(std::move(expr), std::move(stmt));
+    return std::make_unique<Until>(std::move(expr), std::move(stmt), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseFor() { 
@@ -295,6 +300,7 @@ std::unique_ptr<Stmt> Parser::parseFor() {
     std::unique_ptr<Expr> change;
     std::unique_ptr<Stmt> stmt;
 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_for);
     consume(tok::TokenKind::L_PAREN);
     decl = parseDeclareStmt();
@@ -305,7 +311,7 @@ std::unique_ptr<Stmt> Parser::parseFor() {
     stmt = parseStmt();
 
     return std::make_unique<For>(std::move(decl), std::move(cond), 
-                                     std::move(change), std::move(stmt));
+                                     std::move(change), std::move(stmt), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseFunStmt() { 
@@ -314,9 +320,9 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
     Token identifier = Tok;
     advance();
     consume(tok::TokenKind::L_PAREN);
-    llvm::SmallVector<std::unique_ptr<Stmt>, 256> params;
+    llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
     while (!match(tok::TokenKind::R_PAREN) && !atEnd()) {
-        std::unique_ptr<Stmt> param = parseDeclare();
+        std::unique_ptr<Declare> param = std::unique_ptr<Declare>(static_cast<Declare*>(parseDeclare().release()));
         params.push_back(std::move(param));
         if (!match(tok::TokenKind::R_PAREN))
             consume(tok::TokenKind::COMMA);
@@ -365,7 +371,17 @@ std::unique_ptr<Stmt> Parser::parseDeclare() {
 std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
     Token type = Tok;
     advance();
-    std::unique_ptr<Expr> expr = parseAssign();
+    expect(tok::TokenKind::IDENTIFIER);
+    tok::TokenKind lookAhead = peek();
+    std::unique_ptr<Expr> expr;
+    if (lookAhead == tok::TokenKind::EQUAL ||
+        lookAhead == tok::TokenKind::PLUSEQUAL ||
+        lookAhead == tok::TokenKind::MINUSEQUAL)
+        expr = parseAssign();
+    else {
+        expr = std::make_unique<Variable>(Tok);
+        advance();
+    }
     panic();
     consume(tok::TokenKind::SEMI);
     return std::make_unique<Declare>(type, std::move(expr));

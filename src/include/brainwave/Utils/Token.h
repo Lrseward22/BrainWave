@@ -33,7 +33,9 @@ public:
         if (is(tok::UNKNOWN)) return llvm::StringRef("Unknown Character");
         assert(isOneOf(tok::INTEGER_LITERAL,
                        tok::STRING_LITERAL,
-                       tok::FLOAT_LITERAL) &&
+                       tok::FLOAT_LITERAL,
+                       tok::kw_true,
+                       tok::kw_false) &&
             "Cannot get literal data of non-literal");
         return llvm::StringRef(Ptr, Length);
     }

@@ -6,30 +6,20 @@
 
 class Sema {
     Parser &P;
-    Environment env;
-    Environment* currEnv;
     llvm::SmallVector<std::unique_ptr<Environment>> envs;
 
     public:
-    Sema(Parser &P) : P(P), env(Environment(EnvKind::Base, nullptr)) { 
-        currEnv = &env;
-    }
-
-    ~Sema() {
-        if (currEnv != &env)
-            delete currEnv;
+    Sema(Parser &P) : P(P) { 
+        auto env = std::make_unique<Environment>(EnvKind::Base, nullptr);
+        envs.push_back(std::move(env));
     }
 
     brainwave::DiagnosticsEngine &getDiagnostics() const {
         return P.getDiagnostics();
     }
 
-    Environment* getEnvironment() {
-        return &env;
-    }
-
-    Environment* getCurrEnvironment() {
-        return currEnv;
+    Environment* getBaseEnvironment() {
+        return envs[0].get();
     }
 
     std::unique_ptr<AST> next();

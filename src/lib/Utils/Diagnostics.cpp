@@ -6,11 +6,13 @@ namespace {
     const char *DiagnosticText[] = {
     #define DIAG(ID, Level, Msg) Msg,
     #include <brainwave/Utils/Diagnostics.def>
+    #undef DIAG
     };
 
     llvm::SourceMgr::DiagKind DiagnosticKind[] = {
     #define DIAG(ID, Level, Msg) llvm::SourceMgr::DK_##Level,
     #include <brainwave/Utils/Diagnostics.def>
+    #undef DIAG
     };
 } // namespace
 
