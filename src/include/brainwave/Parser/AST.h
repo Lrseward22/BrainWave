@@ -27,6 +27,8 @@ class Block;
 class Print;
 class Read;
 class Return;
+class Break;
+class Continue;
 class If;
 class While;
 class Until;
@@ -58,6 +60,8 @@ class ASTVisitor {
         virtual void visit(Print &) = 0;
         virtual void visit(Read &) = 0;
         virtual void visit(Return &) = 0;
+        virtual void visit(Break &) = 0;
+        virtual void visit(Continue &) = 0;
         virtual void visit(If &) = 0;
         virtual void visit(While &) = 0;
         virtual void visit(Until &) = 0;
@@ -346,11 +350,13 @@ class Declare : public Stmt {
 
 class Print : public Stmt {
     std::unique_ptr<Expr> expr;
+    llvm::SMLoc loc;
 
     public:
-        Print(std::unique_ptr<Expr> expr)
-            : Stmt(StmtKind), expr(std::move(expr)) {}
+        Print(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
+            : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -365,11 +371,13 @@ class Print : public Stmt {
 
 class Read : public Stmt {
     Token identifier;
+    llvm::SMLoc loc;
 
     public:
-        Read(const Token& identifier)
-            : Stmt(StmtKind), identifier(identifier) {}
+        Read(const Token& identifier, llvm::SMLoc loc)
+            : Stmt(StmtKind), identifier(identifier), loc(loc) {}
         Token getIdentifier() { return identifier; }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -399,6 +407,40 @@ class Return : public Stmt {
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Return: " << std::endl;
             if (expr) expr->print(indent + 2);
+        }
+};
+
+class Break : public Stmt {
+    llvm::SMLoc loc;
+
+    public:
+        Break(llvm::SMLoc loc) : Stmt(StmtKind), loc(loc) {}
+        llvm::SMLoc getLoc() { return loc; }
+        virtual void accept(ASTVisitor &V) override {
+            V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
+        }
+        virtual void print(int indent = 0) override {
+            std::cout << std::string(indent, ' ') << "Break: " << std::endl;
+        }
+};
+
+class Continue : public Stmt {
+    llvm::SMLoc loc;
+
+    public:
+        Continue(llvm::SMLoc loc) : Stmt(StmtKind), loc(loc) {}
+        llvm::SMLoc getLoc() { return loc; }
+        virtual void accept(ASTVisitor &V) override {
+            V.visit(*this);
+        }
+        static bool classof(const AST* A) {
+            return A->getKind() == StmtKind;
+        }
+        virtual void print(int indent = 0) override {
+            std::cout << std::string(indent, ' ') << "Continue: " << std::endl;
         }
 };
 
@@ -501,7 +543,6 @@ class For : public Stmt {
     std::unique_ptr<Expr> update;
     std::unique_ptr<Stmt> stmt;
     llvm::SMLoc loc;
-    
 
     public:
         For(std::unique_ptr<Stmt> decl, std::unique_ptr<Expr> cond, std::unique_ptr<Expr> change,
@@ -536,15 +577,18 @@ class FunStmt : public Stmt {
     llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
     Token type;
     std::unique_ptr<Stmt> body;
+    llvm::SMLoc loc;
 
     public:
         FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
-                const Token& type, std::unique_ptr<Stmt> body)
-            : Stmt(FunKind), identifier(tok), params(std::move(params)), type(type), body(std::move(body)) {}
+                const Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc)
+            : Stmt(FunKind), identifier(tok), params(std::move(params)),
+              type(type), body(std::move(body)), loc(loc) {}
         Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Declare>, 256> &getParams() { return params; }
         Token getType() { return type; }
         Stmt* getBody() { return body.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -585,11 +629,13 @@ class ClassStmt : public Stmt {
 
 class Import : public Stmt {
     Token string;
+    llvm::SMLoc loc;
 
     public:
-        Import(const Token& string)
-            : Stmt(StmtKind), string(string) {}
+        Import(const Token& string, llvm::SMLoc loc)
+            : Stmt(StmtKind), string(string), loc(loc) {}
         Token getString() { return string; }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -603,11 +649,13 @@ class Import : public Stmt {
 
 class ExprStmt : public Stmt {
     std::unique_ptr<Expr> expr;
+    llvm::SMLoc loc;
 
     public:
-        ExprStmt(std::unique_ptr<Expr> expr)
-            : Stmt(StmtKind), expr(std::move(expr)) {}
+        ExprStmt(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
+            : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }

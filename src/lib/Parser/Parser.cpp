@@ -198,6 +198,10 @@ std::unique_ptr<Stmt> Parser::parseStmt() {
         return parseRead();
     if (match(tok::TokenKind::kw_return))
         return parseReturn();
+    if (match(tok::TokenKind::kw_break))
+        return parseBreak();
+    if (match(tok::TokenKind::kw_continue))
+        return parseContinue();
     if(match(tok::TokenKind::kw_if))
         return parseIf();
     if(match(tok::TokenKind::kw_while))
@@ -228,31 +232,51 @@ std::unique_ptr<Stmt> Parser::parseBlock() {
 
 std::unique_ptr<Stmt> Parser::parsePrint() { 
     std::unique_ptr<Expr> expr;
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_print);
     expr = parseExpression();
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Print>(std::move(expr));
+    return std::make_unique<Print>(std::move(expr), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseRead() { 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_read);
     expect(tok::TokenKind::IDENTIFIER);
     Token identifier = Tok;
     advance();
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Read>(identifier);
+    return std::make_unique<Read>(identifier, loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseReturn() {
     std::unique_ptr<Expr> expr;
     llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_return);
-    expr = parseExpression();
+    if (!match(tok::TokenKind::SEMI))
+        expr = parseExpression();
+    else expr = nullptr;
     panic();
     consume(tok::TokenKind::SEMI);
     return std::make_unique<Return>(std::move(expr), loc);
+}
+
+std::unique_ptr<Stmt> Parser::parseBreak() {
+    llvm::SMLoc loc = Tok.getLocation();
+    consume(tok::TokenKind::kw_break);
+    panic();
+    consume(tok::TokenKind::SEMI);
+    return std::make_unique<Break>(loc);
+}
+
+std::unique_ptr<Stmt> Parser::parseContinue() {
+    llvm::SMLoc loc = Tok.getLocation();
+    consume(tok::TokenKind::kw_continue);
+    panic();
+    consume(tok::TokenKind::SEMI);
+    return std::make_unique<Continue>(loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseIf() {
@@ -315,6 +339,7 @@ std::unique_ptr<Stmt> Parser::parseFor() {
 }
 
 std::unique_ptr<Stmt> Parser::parseFunStmt() { 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_fun);
     expect(tok::TokenKind::IDENTIFIER);
     Token identifier = Tok;
@@ -341,7 +366,7 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
     advance();
     std::unique_ptr<Stmt> body = parseStmt();
     
-    return std::make_unique<FunStmt>(identifier, params, type, std::move(body));
+    return std::make_unique<FunStmt>(identifier, params, type, std::move(body), loc);
 }
 
 //TODO
@@ -350,13 +375,14 @@ std::unique_ptr<Stmt> Parser::parseClass() {
 }
 
 std::unique_ptr<Stmt> Parser::parseImport() { 
+    llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_import);
     expect(tok::TokenKind::STRING_LITERAL);
     Token string = Tok;
     advance();
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Import>(string);
+    return std::make_unique<Import>(string, loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclare() {
@@ -388,7 +414,8 @@ std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
 }
 
 std::unique_ptr<Stmt> Parser::parseExprStmt() {
-    std::unique_ptr<Stmt> stmt = std::make_unique<ExprStmt>(std::move(parseExpression()));
+    llvm::SMLoc loc = Tok.getLocation();
+    std::unique_ptr<Stmt> stmt = std::make_unique<ExprStmt>(std::move(parseExpression()), loc);
     panic();
     consume(tok::TokenKind::SEMI);
     return stmt;

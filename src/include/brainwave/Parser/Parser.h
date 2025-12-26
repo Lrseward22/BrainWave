@@ -77,6 +77,8 @@ class Parser {
     std::unique_ptr<Stmt> parsePrint();
     std::unique_ptr<Stmt> parseRead();
     std::unique_ptr<Stmt> parseReturn();
+    std::unique_ptr<Stmt> parseBreak();
+    std::unique_ptr<Stmt> parseContinue();
     std::unique_ptr<Stmt> parseIf();
     std::unique_ptr<Stmt> parseWhile();
     std::unique_ptr<Stmt> parseUntil();

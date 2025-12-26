@@ -84,6 +84,8 @@ public:
     virtual void visit(Print &stmt) override { };
     virtual void visit(Read &stmt) override { };
     virtual void visit(Return &stmt) override { };
+    virtual void visit(Break &stmt) override { };
+    virtual void visit(Continue &stmt) override { };
     virtual void visit(If &stmt) override { 
         pushEnv(EnvKind::If);
         stmt.getIfStmt()->accept(*this);
@@ -132,10 +134,14 @@ public:
         popEnv();
 
         // Register function in base environment
-        if (currEnv->defineFunc(stmt.getIdentifier().getIdentifier()))
+        if (currEnv->defineFunc(stmt.getIdentifier().getIdentifier())) {
+            llvm::StringRef iden = stmt.getIdentifier().getIdentifier();
             Diag.report(stmt.getIdentifier().getLocation(), 
                         diag::err_func_redeclaration, 
-                        stmt.getIdentifier().getIdentifier());
+                        iden);
+            Diag.report(baseEnv->getFunc(iden)->getLoc(),
+                    diag::note_fun_declared_here);
+        }
     };
     virtual void visit(ClassStmt &stmt) override { 
         pushEnv(EnvKind::Class);
@@ -302,6 +308,10 @@ public:
         resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
         expr.setLeft(std::move(ResolvedLeft));
         expr.setRight(std::move(ResolvedRight));
+        if (Value != "bool")
+            Diag.report(expr.getOp().getLocation(),
+                        diag::err_bin_op_mismatch, 
+                        expr.getOp().getLexeme(), Value, Value);
         Value = "bool";
     };
     virtual void visit(Assign &expr) override {
@@ -330,6 +340,7 @@ public:
                             expr.getIdentifier().getIdentifier(),
                             func->getParams().size(),
                             expr.getParams().size());
+                Diag.report(func->getLoc(), diag::note_fun_declared_here);
             } else {
                 const auto& funcParams = func->getParams();
                 Environment* funcEnv = func->env;
@@ -341,11 +352,13 @@ public:
                         if ((Value == "int" || Value == "float" || Value == "double") &&
                             (reqType == "int" || reqType == "float" || reqType == "double"))
                             exprParams[i] = std::make_unique<Cast>(std::move(exprParams[i]), reqType);
-                        else
+                        else {
                             Diag.report(expr.getIdentifier().getLocation(),
                                         diag::err_fun_param_type, 
                                         i, expr.getIdentifier().getIdentifier(),
                                         reqType, Value);
+                            Diag.report(func->getLoc(), diag::note_fun_declared_here);
+                        }
                     }
                 }
             }
@@ -370,11 +383,15 @@ public:
     };
     virtual void visit(Read &stmt) override { };
     virtual void visit(Return &stmt) override { 
-        stmt.getExpr()->accept(*this);
+        if (stmt.getExpr())
+            stmt.getExpr()->accept(*this);
+        else Value = "void";
         if (FunType != Value)
             Diag.report(stmt.getLoc(), diag::err_bad_return_type,
                         FunType, Value);
     };
+    virtual void visit(Break &stmt) override { };
+    virtual void visit(Continue &stmt) override { };
     virtual void visit(If &stmt) override { 
         Environment* prev = env;
         env = stmt.ifEnv;
@@ -493,9 +510,11 @@ public:
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
+        Environment* prev = env;
         env = stmt.env;
         for (const auto& s: stmt.getStmts())
             s->accept(*this);
+        env = prev;
     };
     virtual void visit(Print &stmt) override { 
         stmt.getExpr()->accept(*this);
@@ -507,9 +526,13 @@ public:
                         stmt.getIdentifier().getIdentifier());
     };
     virtual void visit(Return &stmt) override { 
-        stmt.getExpr()->accept(*this);
+        if (stmt.getExpr())
+            stmt.getExpr()->accept(*this);
     };
+    virtual void visit(Break &stmt) override { };
+    virtual void visit(Continue &stmt) override { };
     virtual void visit(If &stmt) override { 
+        Environment* prev = env;
         env = stmt.ifEnv;
         stmt.getExpr()->accept(*this);
         stmt.getIfStmt()->accept(*this);
@@ -517,26 +540,35 @@ public:
             env = stmt.elseEnv;
             stmt.getElseStmt()->accept(*this);
         }
+        env = prev;
     };
     virtual void visit(While &stmt) override { 
+        Environment* prev = env;
         env = stmt.env;
         stmt.getExpr()->accept(*this);
         stmt.getStmt()->accept(*this);
+        env = prev;
     };
     virtual void visit(Until &stmt) override {
+        Environment* prev = env;
         env = stmt.env;
         stmt.getExpr()->accept(*this);
         stmt.getStmt()->accept(*this);
+        env = prev;
     };
     virtual void visit(For &stmt) override {
+        Environment* prev = env;
         env = stmt.env;
         stmt.getCond()->accept(*this);
         stmt.getUpdate()->accept(*this);
         stmt.getStmt()->accept(*this);
+        env = prev;
     };
     virtual void visit(FunStmt &stmt) override {
+        Environment* prev = env;
         env = stmt.env;
         stmt.getBody()->accept(*this);
+        env = prev;
     };
     virtual void visit(ClassStmt &stmt) override { };
     virtual void visit(Import &stmt) override { };
@@ -555,11 +587,27 @@ class ControlFlow : public ASTVisitor{
     //      All paths return value
     //      Optional: Unreachable code
     brainwave::DiagnosticsEngine &Diag;
+    Environment* env;
+    bool escape = false;
+    bool warned = false;
+
+    bool envHas(Environment* e, EnvKind K) {
+        if (e->getKind() == K)
+            return true;
+        else if (e->getParent() != nullptr)
+            return envHas(e->getParent(), K);
+        return false;
+    }
+
+    bool envIs(Environment* e, EnvKind K) {
+        return e->getKind() == K;
+    }
 
 public:
     ControlFlow(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
 
-    void run(AST* Tree) {
+    void run(AST* Tree, Environment* e) {
+        env = e;
         Tree->accept(*this);
     }
 
@@ -577,19 +625,130 @@ public:
     };
 
     // Statement ASTs
-    virtual void visit(Block &stmt) override { };
-    virtual void visit(Print &stmt) override { };
-    virtual void visit(Read &stmt) override { };
-    virtual void visit(Return &stmt) override { };
-    virtual void visit(If &stmt) override { };
-    virtual void visit(While &stmt) override { };
-    virtual void visit(Until &stmt) override { };
-    virtual void visit(For &stmt) override { };
-    virtual void visit(FunStmt &stmt) override { };
+    virtual void visit(Block &stmt) override {
+        Environment* prev = env;
+        env = stmt.env;
+        for (const auto& s: stmt.getStmts())
+            s->accept(*this);
+        env = prev;
+        escape = false;
+        warned = false;
+    };
+    virtual void visit(Print &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+    };
+    virtual void visit(Read &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+    };
+    virtual void visit(Return &stmt) override { 
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        if (!envHas(env, EnvKind::Function))
+            Diag.report(stmt.getLoc(), diag::err_ret_outside_function);
+        if (!envIs(env, EnvKind::Base))
+            escape = true;
+    };
+    virtual void visit(Break &stmt) override { 
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        if (!envHas(env, EnvKind::Loop))
+            Diag.report(stmt.getLoc(), diag::err_brk_outside_loop);
+        if (!envIs(env, EnvKind::Base))
+            escape = true;
+    };
+    virtual void visit(Continue &stmt) override { 
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        if (!envHas(env, EnvKind::Loop))
+            Diag.report(stmt.getLoc(), diag::err_cnt_outside_loop);
+        if (!envIs(env, EnvKind::Base))
+            escape = true;
+    };
+    virtual void visit(If &stmt) override { 
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        Environment* prev = env;
+        env = stmt.ifEnv;
+        stmt.getIfStmt()->accept(*this);
+        if (stmt.getElseStmt()) {
+            env = stmt.elseEnv;
+            stmt.getElseStmt()->accept(*this);
+        }
+        env = prev;
+    };
+    virtual void visit(While &stmt) override { 
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        Environment* prev = env;
+        env = stmt.env;
+        stmt.getStmt()->accept(*this);
+        env = prev;
+    };
+    virtual void visit(Until &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        Environment* prev = env;
+        env = stmt.env;
+        stmt.getStmt()->accept(*this);
+        env = prev;
+    };
+    virtual void visit(For &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        Environment* prev = env;
+        env = stmt.env;
+        stmt.getStmt()->accept(*this);
+        env = prev;
+    };
+    virtual void visit(FunStmt &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+        Environment* prev = env;
+        env = stmt.env;
+        stmt.getBody()->accept(*this);
+        env = prev;
+    };
     virtual void visit(ClassStmt &stmt) override { };
-    virtual void visit(Import &stmt) override { };
-    virtual void visit(Declare &stmt) override { };
-    virtual void visit(ExprStmt &stmt) override { };
+    virtual void visit(Import &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+    };
+    virtual void visit(Declare &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getType().getLocation(), diag::warn_unreachable_code);
+            warned = true;
+        }
+    };
+    virtual void visit(ExprStmt &stmt) override {
+        if (escape && !warned) {
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
+            warned = true;
+        }
+    };
 };
 }
 
@@ -598,23 +757,26 @@ public:
 //      Definite Assignment: Initialized variable before use
 
 std::unique_ptr<AST> Sema::next() {
-    // Create all semantic pass visitors
     // get next ast
-    // feed it into all passes
     std::unique_ptr<AST> ast = std::move(P.parse());
+    // Create all semantic pass visitors
     EnvCreation EnvC(getDiagnostics(), &envs);
     ScopeResolution ScoRe(getDiagnostics());
     TypeChecker TypCh(getDiagnostics());
+    ControlFlow ConFl(getDiagnostics());
     while (ast) {
         ast->print();
         std::cout << "\n";
+        // feed it into all passes
         EnvC.run(ast.get(), getBaseEnvironment());
         ScoRe.run(ast.get(), getBaseEnvironment());
         TypCh.run(ast.get(), getBaseEnvironment());
+        ConFl.run(ast.get(), getBaseEnvironment());
         if (auto* func = llvm::dyn_cast<FunStmt>(ast.get())) {
             std::unique_ptr<FunStmt> F(static_cast<FunStmt*>(ast.release()));
             llvm::StringRef funcName = F->getIdentifier().getIdentifier();
-            getBaseEnvironment()->attachFunc(funcName, std::move(F));
+            if (getBaseEnvironment()->getFunc(funcName) == nullptr)
+                getBaseEnvironment()->attachFunc(funcName, std::move(F));
         }
         ast = P.parse();
     }

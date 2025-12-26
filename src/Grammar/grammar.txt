@@ -13,6 +13,8 @@ statement
     | printStatement SEMI
     | readStatement SEMI
     | returnStatement SEMI
+    | breakStatement SEMI
+    | continueStatement SEMI
     | ifStatement
     | whileStatement
     | untilStatement
@@ -30,6 +32,14 @@ funcDefStatement
 
 returnStatement
     : kw_RETURN expr
+    ;
+
+breakStatement
+    : kw_BREAK expr
+    ;
+
+continueStatement
+    : kw_CONTINUE expr
     ;
 
 paramList
