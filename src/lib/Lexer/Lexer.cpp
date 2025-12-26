@@ -102,7 +102,12 @@ void Lexer::next(Token &token) {
                 formToken(token, BufferPtr + 1, tok::STAR);
                 break;
             case '/': 
-                formToken(token, BufferPtr + 1, tok::SLASH);
+                if (*(BufferPtr + 1) == '/') {
+                    while(!charinfo::isVerticalWhitespace(*(++BufferPtr)));
+                    next(token);
+                    break;
+                } else
+                    formToken(token, BufferPtr + 1, tok::SLASH);
                 break;
             case '^': 
                 formToken(token, BufferPtr + 1, tok::CARET);
