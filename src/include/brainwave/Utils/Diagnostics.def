@@ -31,4 +31,5 @@ DIAG(err_ret_outside_function,  Error, "Illegal return outside of a function")
 DIAG(err_brk_outside_loop,      Error, "Illegal break outside of a loop")
 DIAG(err_cnt_outside_loop,      Error, "Illegal continue outside of a loop")
 DIAG(warn_unreachable_code,     Warning, "Unreachable statements")
+DIAG(err_missing_return,        Error, "Control path does not return a value in non-void function")
 #undef DIAG

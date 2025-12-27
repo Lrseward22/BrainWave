@@ -500,6 +500,7 @@ public:
             Diag.report(expr.getIdentifier().getLocation(),
                         diag::err_iden_undeclared, 
                         expr.getIdentifier().getIdentifier());
+        expr.getExpr()->accept(*this);
     };
     virtual void visit(FunExpr &expr) override { 
         FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
@@ -596,6 +597,7 @@ class ControlFlow : public ASTVisitor{
     Environment* env;
     bool escape = false;
     bool warned = false;
+    bool mustReturn = false;
 
     bool envHas(Environment* e, EnvKind K) {
         if (e->getKind() == K)
@@ -613,6 +615,9 @@ public:
     ControlFlow(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
 
     void run(AST* Tree, Environment* e) {
+        escape = false;
+        warned = false;
+        mustReturn = false;
         env = e;
         Tree->accept(*this);
     }
@@ -635,8 +640,6 @@ public:
         for (const auto& s: stmt.getStmts())
             s->accept(*this);
         env = prev;
-        escape = false;
-        warned = false;
     };
     virtual void visit(Print &stmt) override {
         if (escape && !warned) {
@@ -659,6 +662,7 @@ public:
             Diag.report(stmt.getLoc(), diag::err_ret_outside_function);
         if (!envIs(env, EnvKind::Base))
             escape = true;
+        mustReturn = true;
     };
     virtual void visit(Break &stmt) override { 
         if (escape && !warned) {
@@ -684,55 +688,89 @@ public:
         if (escape && !warned) {
             Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
             warned = true;
+        } else if (!escape) {
+            Environment* prev = env;
+            bool prevMustReturn = mustReturn;
+            mustReturn = false;
+            env = stmt.ifEnv;
+            stmt.getIfStmt()->accept(*this);
+            bool ifReturns = mustReturn;
+            bool elseReturns = false;
+            if (stmt.getElseStmt()) {
+                mustReturn = false;
+                env = stmt.elseEnv;
+                stmt.getElseStmt()->accept(*this);
+                elseReturns = mustReturn;
+            }
+            env = prev;
+            mustReturn = ifReturns && elseReturns;
+            if (mustReturn) escape = true;
         }
-        Environment* prev = env;
-        env = stmt.ifEnv;
-        stmt.getIfStmt()->accept(*this);
-        if (stmt.getElseStmt()) {
-            env = stmt.elseEnv;
-            stmt.getElseStmt()->accept(*this);
-        }
-        env = prev;
     };
     virtual void visit(While &stmt) override { 
         if (escape && !warned) {
             Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
             warned = true;
+        } else if (!escape) {
+            bool prevMustReturn = mustReturn;
+            bool prevEscape = escape;
+            mustReturn = false;
+            escape = false;
+            Environment* prev = env;
+            env = stmt.env;
+            stmt.getStmt()->accept(*this);
+            env = prev;
+            mustReturn = prevMustReturn;
+            escape = prevEscape;
         }
-        Environment* prev = env;
-        env = stmt.env;
-        stmt.getStmt()->accept(*this);
-        env = prev;
     };
     virtual void visit(Until &stmt) override {
         if (escape && !warned) {
             Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
             warned = true;
+        } else if (!escape) {
+            bool prevMustReturn = mustReturn;
+            bool prevEscape = escape;
+            mustReturn = false;
+            escape = false;
+            Environment* prev = env;
+            env = stmt.env;
+            stmt.getStmt()->accept(*this);
+            env = prev;
+            mustReturn = prevMustReturn;
+            escape = prevEscape;
         }
-        Environment* prev = env;
-        env = stmt.env;
-        stmt.getStmt()->accept(*this);
-        env = prev;
     };
     virtual void visit(For &stmt) override {
         if (escape && !warned) {
             Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
             warned = true;
+        } else if (!escape) {
+            bool prevMustReturn = mustReturn;
+            bool prevEscape = escape;
+            mustReturn = false;
+            escape = false;
+            Environment* prev = env;
+            env = stmt.env;
+            stmt.getStmt()->accept(*this);
+            env = prev;
+            mustReturn = prevMustReturn;
+            escape = prevEscape;
         }
-        Environment* prev = env;
-        env = stmt.env;
-        stmt.getStmt()->accept(*this);
-        env = prev;
     };
     virtual void visit(FunStmt &stmt) override {
         if (escape && !warned) {
             Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
             warned = true;
         }
+        mustReturn = false;
         Environment* prev = env;
         env = stmt.env;
         stmt.getBody()->accept(*this);
         env = prev;
+        if (!mustReturn && stmt.getType().getLexeme().str() != "void")
+            Diag.report(stmt.getLoc(), diag::err_missing_return);
+        mustReturn = false;
     };
     virtual void visit(ClassStmt &stmt) override { };
     virtual void visit(Import &stmt) override {
