@@ -6,7 +6,7 @@
 
 class Sema {
     Parser &P;
-    llvm::SmallVector<std::unique_ptr<Environment>> envs;
+    llvm::SmallVector<std::unique_ptr<Environment>, 256> envs;
 
     public:
     Sema(Parser &P) : P(P) { 

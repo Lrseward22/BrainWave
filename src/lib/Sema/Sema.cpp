@@ -5,9 +5,9 @@
 using namespace brainwave;
 
 // FIXME: Next steps::
-//      Need to check for nested assignments in environment creation int x = y = 3;
 //      Change Sema::next to skip passing functions, analyze/pass next AST
 //          pass functions at the end when AST obtained from parser is null
+//      All paths return a value
 
 namespace {
 class EnvCreation : public ASTVisitor{
@@ -16,10 +16,10 @@ class EnvCreation : public ASTVisitor{
     //      Defines declared functions
     //      Creates Scopes
     brainwave::DiagnosticsEngine &Diag;
-    llvm::SmallVector<std::unique_ptr<Environment>>* envs;
+    llvm::SmallVector<std::unique_ptr<Environment>, 256>* envs;
     Environment* baseEnv;
     Environment* currEnv;
-    Token iden;
+    llvm::SmallVector<Token, 256> idens;
 
     void pushEnv(EnvKind kind) {
         auto env = std::make_unique<Environment>(kind, currEnv);
@@ -32,7 +32,7 @@ class EnvCreation : public ASTVisitor{
     }
 
 public:
-    EnvCreation(brainwave::DiagnosticsEngine &Diag, llvm::SmallVector<std::unique_ptr<Environment>>* envs)
+    EnvCreation(brainwave::DiagnosticsEngine &Diag, llvm::SmallVector<std::unique_ptr<Environment>, 256>* envs)
         : Diag(Diag), envs(envs) { }
 
     void run(AST* Tree, Environment* base) {
@@ -54,14 +54,16 @@ public:
     };
     virtual void visit(Literal &expr) override { };
     virtual void visit(Variable &expr) override {
-        iden = expr.getIdentifier();
+        idens.push_back(expr.getIdentifier());
     };
     virtual void visit(Logical &expr) override {
         expr.getLeft()->accept(*this);
         expr.getRight()->accept(*this);
     };
     virtual void visit(Assign &expr) override { 
-        iden = expr.getIdentifier();
+        idens.push_back(expr.getIdentifier());
+        if (auto* func = llvm::dyn_cast<Assign>(expr.getExpr()))
+            expr.getExpr()->accept(*this);
     };
     virtual void visit(FunExpr &expr) override { 
         for (const auto& p: expr.getParams())
@@ -154,13 +156,17 @@ public:
         llvm::StringRef type = stmt.getType().getLexeme();
         stmt.getExpr()->accept(*this);
         if (type == "void")
-            Diag.report(iden.getLocation(),
-                        diag::err_void_iden,
-                        iden.getIdentifier());
-        if (currEnv->defineVar(iden.getIdentifier(), type))
-            Diag.report(iden.getLocation(), 
-                        diag::err_iden_redeclaration, 
-                        iden.getIdentifier());
+            for (auto& iden : idens)
+                Diag.report(iden.getLocation(),
+                            diag::err_void_iden,
+                            iden.getIdentifier());
+        for (auto& iden : idens) {
+            if (currEnv->defineVar(iden.getIdentifier(), type))
+                Diag.report(iden.getLocation(), 
+                            diag::err_iden_redeclaration, 
+                            iden.getIdentifier());
+        }
+        idens.clear();
     };
     virtual void visit(ExprStmt &stmt) override { 
         stmt.getExpr()->accept(*this);
@@ -585,7 +591,7 @@ class ControlFlow : public ASTVisitor{
     //      Break/Continue inside loop
     //      Return inside function
     //      All paths return value
-    //      Optional: Unreachable code
+    //      Unreachable code
     brainwave::DiagnosticsEngine &Diag;
     Environment* env;
     bool escape = false;
@@ -620,9 +626,7 @@ public:
     virtual void visit(Logical &expr) override { };
     virtual void visit(Assign &expr) override { };
     virtual void visit(FunExpr &expr) override { };
-    virtual void visit(Cast &expr) override {
-        expr.getExpr()->accept(*this);
-    };
+    virtual void visit(Cast &expr) override { };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {

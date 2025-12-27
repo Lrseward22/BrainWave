@@ -76,7 +76,7 @@ class ASTVisitor {
 class AST {
 public:
     enum Kind {
-        FunKind, ClassKind, StmtKind, ExprKind
+        FunKind, ClassKind, StmtKind, AssignKind, ExprKind
     };
 
 private:
@@ -234,7 +234,7 @@ class Assign : public Expr {
 
     public:
         Assign(Token identifier, const Token& op, std::unique_ptr<Expr> expr)
-            : Expr(ExprKind), identifier(identifier), op(op), expr(std::move(expr)) {}
+            : Expr(AssignKind), identifier(identifier), op(op), expr(std::move(expr)) {}
         Token getIdentifier() { return identifier; }
         Token getOp() { return op; }
         Expr* getExpr() { return expr.get(); }
@@ -244,7 +244,7 @@ class Assign : public Expr {
             V.visit(*this);
         }
         static bool classof(const AST* A) {
-            return A->getKind() == ExprKind;
+            return A->getKind() == AssignKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Assign: (" << identifier.getIdentifier().str() << ")" << std::endl;

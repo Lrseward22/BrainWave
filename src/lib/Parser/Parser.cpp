@@ -39,7 +39,7 @@ std::unique_ptr<Expr> Parser::parseAssign() {
     advance();
     Token op = Tok;
     advance();
-    std::unique_ptr<Expr> expr = parseLogical();
+    std::unique_ptr<Expr> expr = parseExpression();
     return std::make_unique<Assign>(identifier, op, std::move(expr));
 }
 
