@@ -16,6 +16,9 @@ class Token {
     tok::TokenKind Kind;
 
 public:
+    Token() {}
+    Token(const char* data, size_t l, tok::TokenKind K)
+        : Ptr(data), Length(l), Kind(K) { }
     tok::TokenKind getKind() const { return Kind; }
     size_t getLength() const { return Length; }
 

@@ -1,6 +1,5 @@
 #include <brainwave/Sema/Sema.h>
 #include "llvm/Support/Casting.h"
-#include <iostream>
 
 using namespace brainwave;
 
@@ -189,8 +188,10 @@ class TypeChecker : public ASTVisitor{
 
     void resolveTypes(std::unique_ptr<Expr> lhs, std::unique_ptr<Expr> rhs, Token op) {
         lhs->accept(*this);
+        lhs->setType(Value);
         std::string lType = Value;
         rhs->accept(*this);
+        rhs->setType(Value);
         std::string rType = Value;
 
         if (lType == "int" && rType == "float")
@@ -228,7 +229,9 @@ public:
         resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
         expr.setLeft(std::move(ResolvedLeft));
         expr.setRight(std::move(ResolvedRight));
-        expr.getLeft()->accept(*this);
+        Value = expr.getLeft()->getType();
+        expr.setType(Value);
+
         if (Value == "void") {
             Diag.report(expr.getOp().getLocation(),
                         diag::err_void_in_expr);
@@ -269,6 +272,7 @@ public:
     };
     virtual void visit(UnaryOp &expr) override {
         expr.getExpr()->accept(*this);
+        expr.setType(Value);
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::BANG:
                 if (Value != "bool")
@@ -277,8 +281,18 @@ public:
                                 expr.getOp().getLexeme(), Value);
                 break;
             case tok::TokenKind::MINUS:
+                if (Value != "int" && Value != "float" && Value != "double")
+                    Diag.report(expr.getOp().getLocation(),
+                                diag::err_una_op_mismatch, 
+                                expr.getOp().getLexeme(), Value);
+                break;
             case tok::TokenKind::PLUSPLUS:
             case tok::TokenKind::MINUSMINUS:
+                // Make sure operand is variable
+                if (!llvm::dyn_cast<Variable>(expr.getExpr()))
+                    Diag.report(expr.getOp().getLocation(),
+                                diag::err_una_assign_bad_operand,
+                                expr.getOp().getLexeme());
                 if (Value != "int" && Value != "float" && Value != "double")
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
@@ -288,6 +302,7 @@ public:
     };
     virtual void visit(Grouping &expr) override {
         expr.getExpr()->accept(*this);
+        expr.setType(Value);
     };
     virtual void visit(Literal &expr) override {
         switch (expr.getTok().getKind()) {
@@ -305,10 +320,12 @@ public:
                 Value = "bool";
                 break;
         }
+        expr.setType(Value);
     };
     virtual void visit(Variable &expr) override {
         llvm::StringRef v = env->getVar(expr.getIdentifier());
         Value = v.str();
+        expr.setType(Value);
     };
     virtual void visit(Logical &expr) override {
         resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
@@ -319,6 +336,7 @@ public:
                         diag::err_bin_op_mismatch, 
                         expr.getOp().getLexeme(), Value, Value);
         Value = "bool";
+        expr.setType(Value);
     };
     virtual void visit(Assign &expr) override {
         llvm::StringRef v = env->getVar(expr.getIdentifier());
@@ -335,7 +353,23 @@ public:
                             expr.getIdentifier().getIdentifier(),
                             v, Value);
         }
+        switch (expr.getOp().getKind()) {
+            case tok::TokenKind::PLUSEQUAL:
+                if (Value != "int" && Value != "float"
+                    && Value != "double" && Value != "string")
+                    Diag.report(expr.getOp().getLocation(),
+                                diag::err_bin_op_mismatch, 
+                                expr.getOp().getLexeme(), v, Value);
+                break;
+            case tok::TokenKind::MINUSEQUAL:
+                if (Value != "int" && Value != "float" && Value != "double")
+                    Diag.report(expr.getOp().getLocation(),
+                                diag::err_bin_op_mismatch, 
+                                expr.getOp().getLexeme(), v, Value);
+                break;
+        }
         Value = v.str();
+        expr.setType(Value);
     };
     virtual void visit(FunExpr &expr) override { 
         FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
@@ -371,6 +405,7 @@ public:
             Value = func->getType().getLexeme().str();
         } else
             Value = "void";
+        expr.setType(Value);
     };
     virtual void visit(Cast &expr) override {
         Value = expr.getType();
@@ -792,6 +827,282 @@ public:
         }
     };
 };
+
+class Desugar : public ASTVisitor{
+    // Changes:
+    //          ++ into += 1,
+    //          -- into -= 1,
+    //          until loops into while loops
+    std::unique_ptr<Expr> ReplaceExpr = nullptr;
+    std::unique_ptr<Stmt> ReplaceStmt = nullptr;
+
+public:
+    Desugar() { }
+
+    std::unique_ptr<AST> run(std::unique_ptr<AST> Tree) {
+        Tree->accept(*this);
+
+        if (ReplaceStmt) {
+            auto result = std::move(ReplaceStmt);
+            ReplaceStmt = nullptr;
+            return result;
+        }
+        return Tree;
+    }
+
+    // Expression ASTs
+    virtual void visit(BinaryOp &expr) override {
+        expr.getLeft()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setLeft(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+        expr.getRight()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setRight(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+    };
+    virtual void visit(UnaryOp &expr) override {
+        expr.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+
+        if (expr.getOp().isOneOf(tok::TokenKind::PLUSPLUS, tok::TokenKind::MINUSMINUS)) {
+            if (Variable* var = llvm::dyn_cast<Variable>(expr.getExpr())) {
+                std::string type = expr.getType();
+                Token identifier = var->getIdentifier();
+
+                // Create Token for Literal 1
+                static const char* one = "1";
+                Token oneTok(one, 1, tok::TokenKind::INTEGER_LITERAL);
+                auto One = std::make_unique<Literal>(oneTok);
+                One->setType(type);
+
+                // Create Expression for variable
+                auto varExpr = std::make_unique<Variable>(identifier);
+                varExpr->setType(type);
+
+                // Create Expression for var +/- 1
+                tok::TokenKind opKind = (expr.getOp().getKind() == tok::TokenKind::PLUSPLUS)
+                    ? tok::TokenKind::PLUS
+                    : tok::TokenKind::MINUS;
+                Token opTok(expr.getOp().getLexeme().data(),
+                            expr.getOp().getLexeme().size(),
+                            opKind);
+                auto binExpr = std::make_unique<BinaryOp>(
+                        std::move(varExpr), opTok, std::move(One));
+                binExpr->setType(type);
+
+                // Create = Expression
+                static const char* eq = "=";
+                Token eqTok(eq, 1, tok::TokenKind::EQUAL);
+                ReplaceExpr = std::make_unique<Assign>(identifier, eqTok, std::move(binExpr));
+                ReplaceExpr->setType(type);
+            }
+        }
+
+    };
+    virtual void visit(Grouping &expr) override {
+        expr.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+    };
+    virtual void visit(Literal &expr) override { };
+    virtual void visit(Variable &expr) override { };
+    virtual void visit(Logical &expr) override {
+        expr.getLeft()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setLeft(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+        expr.getRight()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setRight(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+    };
+    virtual void visit(Assign &expr) override {
+        expr.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+        if (!expr.getOp().is(tok::TokenKind::EQUAL)) {
+            std::string type = expr.getType();
+            Token identifier = expr.getIdentifier();
+
+            // Create Expression for variable
+            auto varExpr = std::make_unique<Variable>(identifier);
+            varExpr->setType(type);
+
+            // Create Expression for var +/- expr
+            tok::TokenKind opKind = (expr.getOp().getKind() == tok::TokenKind::PLUSEQUAL)
+                ? tok::TokenKind::PLUS
+                : tok::TokenKind::MINUS;
+            Token opTok(expr.getOp().getLexeme().data(),
+                        expr.getOp().getLexeme().size(),
+                        opKind);
+            auto binExpr = std::make_unique<BinaryOp>(
+                    std::move(varExpr), opTok, std::move(expr.getUnique()));
+            binExpr->setType(type);
+
+            // Create = Expression
+            static const char* eq = "=";
+            Token eqTok(eq, 1, tok::TokenKind::EQUAL);
+            ReplaceExpr = std::make_unique<Assign>(identifier, eqTok, std::move(binExpr));
+            ReplaceExpr->setType(type);
+        }
+    };
+    virtual void visit(FunExpr &expr) override {
+        for (auto& param : expr.getParams()) {
+            param->accept(*this);
+            if (ReplaceExpr) {
+                param = std::move(ReplaceExpr);
+                ReplaceExpr = nullptr;
+            }
+        }
+    };
+    virtual void visit(Cast &expr) override {
+        expr.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            expr.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+    };
+
+    // Statement ASTs
+    virtual void visit(Block &stmt) override {
+        for (auto& s : stmt.getStmts()) {
+            s->accept(*this);
+            if (ReplaceStmt) {
+                s = std::move(ReplaceStmt);
+                ReplaceStmt = nullptr;
+            }
+        }
+    };
+    virtual void visit(Print &stmt) override {
+        stmt.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            stmt.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+    };
+    virtual void visit(Read &stmt) override {
+    };
+    virtual void visit(Return &stmt) override {
+        if (stmt.getExpr()) {
+            stmt.getExpr()->accept(*this);
+            if (ReplaceExpr) {
+                stmt.setExpr(std::move(ReplaceExpr));
+                ReplaceExpr = nullptr;
+            }
+        }
+    };
+    virtual void visit(Break &stmt) override { };
+    virtual void visit(Continue &stmt) override { };
+    virtual void visit(If &stmt) override {
+        stmt.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            stmt.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+        stmt.getIfStmt()->accept(*this);
+        if (ReplaceStmt) {
+            stmt.setIf(std::move(ReplaceStmt));
+            ReplaceStmt = nullptr;
+        }
+
+        if (stmt.getElseStmt()) {
+            stmt.getElseStmt()->accept(*this);
+            if (ReplaceStmt) {
+                stmt.setElse(std::move(ReplaceStmt));
+                ReplaceStmt = nullptr;
+            }
+        }
+    };
+    virtual void visit(While &stmt) override {
+        stmt.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            stmt.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+        stmt.getStmt()->accept(*this);
+        if (ReplaceStmt) {
+            stmt.setStmt(std::move(ReplaceStmt));
+            ReplaceStmt = nullptr;
+        }
+    };
+    virtual void visit(Until &stmt) override {
+        auto condExpr = stmt.getUniqueExpr();
+        if (condExpr) {
+            condExpr->accept(*this);
+            if (ReplaceExpr) {
+                condExpr = std::move(ReplaceExpr);
+                ReplaceExpr = nullptr;
+            }
+        }
+        auto bodyStmt = stmt.getUniqueStmt();
+        if (bodyStmt) {
+            bodyStmt->accept(*this);
+            if (ReplaceStmt) {
+                bodyStmt = std::move(ReplaceStmt);
+                ReplaceStmt = nullptr;
+            }
+        }
+
+        static const char* bang = "!";
+        Token BangToken(bang, 1, tok::TokenKind::BANG);
+        auto negatedCond = std::make_unique<UnaryOp>(BangToken, std::move(condExpr));
+        auto whileStmt = std::make_unique<While>(std::move(negatedCond),
+                                                 std::move(bodyStmt),
+                                                 stmt.getLoc());
+        whileStmt->env = stmt.env;
+        ReplaceStmt = std::move(whileStmt);
+    };
+    virtual void visit(For &stmt) override {
+        stmt.getDecl()->accept(*this);
+        stmt.getCond()->accept(*this);
+        if (ReplaceExpr) {
+            stmt.setCond(std::move(ReplaceExpr));
+            ReplaceStmt = nullptr;
+        }
+        stmt.getUpdate()->accept(*this);
+        if (ReplaceExpr) {
+            stmt.setUpdate(std::move(ReplaceExpr));
+            ReplaceStmt = nullptr;
+        }
+        stmt.getStmt()->accept(*this);
+        if (ReplaceStmt) {
+            stmt.setStmt(std::move(ReplaceStmt));
+            ReplaceStmt = nullptr;
+        }
+    };
+    virtual void visit(FunStmt &stmt) override {
+        stmt.getBody()->accept(*this);
+        if (ReplaceStmt) {
+            stmt.setBody(std::move(ReplaceStmt));
+            ReplaceStmt = nullptr;
+        }
+    };
+    virtual void visit(ClassStmt &stmt) override { };
+    virtual void visit(Import &stmt) override {
+    };
+    virtual void visit(Declare &stmt) override {
+        stmt.getExpr()->accept(*this);
+    };
+    virtual void visit(ExprStmt &stmt) override {
+        stmt.getExpr()->accept(*this);
+        if (ReplaceExpr) {
+            stmt.setExpr(std::move(ReplaceExpr));
+            ReplaceExpr = nullptr;
+        }
+    };
+};
 }
 
 // Other optional passes:
@@ -801,26 +1112,19 @@ public:
 std::unique_ptr<AST> Sema::next() {
     // get next ast
     std::unique_ptr<AST> ast = std::move(P.parse());
+    if (!ast)
+        return nullptr;
     // Create all semantic pass visitors
     EnvCreation EnvC(getDiagnostics(), &envs);
     ScopeResolution ScoRe(getDiagnostics());
     TypeChecker TypCh(getDiagnostics());
     ControlFlow ConFl(getDiagnostics());
-    while (ast) {
-        ast->print();
-        std::cout << "\n";
-        // feed it into all passes
-        EnvC.run(ast.get(), getBaseEnvironment());
-        ScoRe.run(ast.get(), getBaseEnvironment());
-        TypCh.run(ast.get(), getBaseEnvironment());
-        ConFl.run(ast.get(), getBaseEnvironment());
-        if (auto* func = llvm::dyn_cast<FunStmt>(ast.get())) {
-            std::unique_ptr<FunStmt> F(static_cast<FunStmt*>(ast.release()));
-            llvm::StringRef funcName = F->getIdentifier().getIdentifier();
-            if (getBaseEnvironment()->getFunc(funcName) == nullptr)
-                getBaseEnvironment()->attachFunc(funcName, std::move(F));
-        }
-        ast = P.parse();
-    }
-    return std::move(ast);
+    Desugar Des;
+    // feed it into all passes
+    EnvC.run(ast.get(), getBaseEnvironment());
+    ScoRe.run(ast.get(), getBaseEnvironment());
+    TypCh.run(ast.get(), getBaseEnvironment());
+    ConFl.run(ast.get(), getBaseEnvironment());
+    ast = Des.run(std::move(ast));
+    return ast;
 }

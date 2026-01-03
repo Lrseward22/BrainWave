@@ -17,6 +17,21 @@ llvm::StringRef Environment::getVar(Token name) {
     return "";
 }
 
+bool Environment::declareAlloca(llvm::StringRef name, llvm::AllocaInst* alloca) {
+    if (allocations.count(name))
+        return true;
+    allocations[name] = alloca;
+    return false;
+}
+
+llvm::AllocaInst* Environment::getAlloca(llvm::StringRef name) {
+    if (allocations.count(name))
+        return allocations[name];
+    else if (parent != nullptr)
+        return parent->getAlloca(name);
+    return nullptr;
+}
+
 bool Environment::defineFunc(llvm::StringRef name, std::unique_ptr<FunStmt> funcAST) {
     if (funcMap.count(name))
         return true;

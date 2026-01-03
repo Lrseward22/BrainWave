@@ -2,8 +2,10 @@
 #define BRAINWAVE_SEMA_ENVIRONMENT_H
 
 #include <brainwave/Utils/Token.h>
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/IR/Instructions.h"
 #include <iostream>
 #include <memory>
 
@@ -33,6 +35,7 @@ inline std::ostream& operator<<(std::ostream& os, EnvKind k) {
 class Environment {
     Environment *parent;
     llvm::StringMap<llvm::StringRef> typeMap;
+    llvm::StringMap<llvm::AllocaInst*> allocations;
     llvm::StringMap<std::unique_ptr<FunStmt>> funcMap;
     llvm::StringMap<int> indexMap;
     int indexCount = 0;
@@ -44,6 +47,8 @@ class Environment {
 
     bool defineVar(llvm::StringRef name, llvm::StringRef type);
     llvm::StringRef getVar(Token name);
+    bool declareAlloca(llvm::StringRef name, llvm::AllocaInst* alloca);
+    llvm::AllocaInst* getAlloca(llvm::StringRef name);
     int getIndex(llvm::StringRef name);
     int getIndex(Token name);
     int numVars() { return indexCount; }
@@ -51,6 +56,12 @@ class Environment {
     bool defineFunc(llvm::StringRef name);
     void attachFunc(llvm::StringRef name, std::unique_ptr<FunStmt> FuncAST);
     FunStmt* getFunc(llvm::StringRef funcName);
+    llvm::SmallVector<FunStmt*, 256> getAllFuncs() { 
+        llvm::SmallVector<FunStmt*, 256> funcs;
+        for (auto& entry : funcMap)
+            funcs.push_back(entry.getValue().get());
+        return funcs;
+    }
     EnvKind getKind() { return kind; }
     Environment* getParent() { return parent; }
 };

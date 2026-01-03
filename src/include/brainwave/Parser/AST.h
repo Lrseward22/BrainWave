@@ -76,7 +76,8 @@ class ASTVisitor {
 class AST {
 public:
     enum Kind {
-        FunKind, ClassKind, StmtKind, AssignKind, ExprKind
+        FunKind, ClassKind, StmtKind,
+        AssignKind, VariableKind, ExprKind
     };
 
 private:
@@ -91,8 +92,10 @@ public:
 };
 
 class Expr : public AST {
-    public:
-        Expr(Kind K) : AST(K) {}
+public:
+    Expr(Kind K) : AST(K) {}
+    virtual void setType(std::string t) {}
+    virtual std::string getType() = 0;
 };
 
 // TermExpr, FactorExpr, BoolExpr
@@ -100,6 +103,7 @@ class BinaryOp : public Expr {
     std::unique_ptr<Expr> left;
     Token op;
     std::unique_ptr<Expr> right;
+    std::string type;
 
     public:
         BinaryOp(std::unique_ptr<Expr> left, const Token& op, std::unique_ptr<Expr> right) 
@@ -117,6 +121,8 @@ class BinaryOp : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Binary Op: (" << op.getLexeme().str() << ")" << std::endl;
             if (left) left->print(indent + 2);
@@ -127,18 +133,22 @@ class BinaryOp : public Expr {
 class UnaryOp : public Expr {
     Token op;
     std::unique_ptr<Expr> expr;
+    std::string type;
 
     public:
         UnaryOp(const Token& op, std::unique_ptr<Expr> expr)
             : Expr(ExprKind), op(op), expr(std::move(expr)) {}
         Token getOp() { return op; }
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Unary Op: (" << op.getLexeme().str() << ")" << std::endl;
             if (expr) expr->print(indent + 2);
@@ -147,16 +157,20 @@ class UnaryOp : public Expr {
 
 class Grouping : public Expr {
     std::unique_ptr<Expr> expr;
+    std::string type;
 
     public:
         Grouping(std::unique_ptr<Expr> expr) : Expr(ExprKind), expr(std::move(expr)) {}
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Grouping:" << std::endl;
             if (expr) expr->print(indent + 2);
@@ -165,6 +179,7 @@ class Grouping : public Expr {
 
 class Literal : public Expr {
     Token literal;
+    std::string type;
 
     public:
         Literal(const Token& tok) : Expr(ExprKind), literal(tok) {}
@@ -173,6 +188,8 @@ class Literal : public Expr {
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
@@ -183,17 +200,20 @@ class Literal : public Expr {
 
 class Variable : public Expr {
     Token identifier;
+    std::string type;
 
     public:
-        Variable(const Token& tok) : Expr(ExprKind), identifier(tok) {}
+        Variable(const Token& tok) : Expr(VariableKind), identifier(tok) {}
         Token getIdentifier() { return identifier; }
         llvm::StringRef getData() { return identifier.getIdentifier(); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
         static bool classof(const AST* A) {
-            return A->getKind() == ExprKind;
+            return A->getKind() == VariableKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ')' << std::endl;
         }
@@ -203,6 +223,7 @@ class Logical : public Expr {
     std::unique_ptr<Expr> left;
     Token op;
     std::unique_ptr<Expr> right;
+    std::string type;
 
     public:
         Logical(std::unique_ptr<Expr> left, const Token& op, std::unique_ptr<Expr> right) 
@@ -220,6 +241,8 @@ class Logical : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Logical: (" << op.getLexeme().str() << ")" << std::endl;
             if (left) left->print(indent + 2);
@@ -231,6 +254,7 @@ class Assign : public Expr {
     Token identifier;
     Token op;
     std::unique_ptr<Expr> expr;
+    std::string type;
 
     public:
         Assign(Token identifier, const Token& op, std::unique_ptr<Expr> expr)
@@ -246,6 +270,8 @@ class Assign : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == AssignKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Assign: (" << identifier.getIdentifier().str() << ")" << std::endl;
             std::cout << std::string(indent + 2, ' ') << "Op: (" << op.getLexeme().str() << ")" << std::endl;
@@ -256,6 +282,7 @@ class Assign : public Expr {
 class FunExpr : public Expr {
     Token identifier;
     llvm::SmallVector<std::unique_ptr<Expr>, 256> params;
+    std::string type;
 
     public:
         FunExpr(const Token& tok, llvm::SmallVector<std::unique_ptr<Expr>, 256> &paramslst)
@@ -268,6 +295,8 @@ class FunExpr : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
+        void setType(std::string t) { type = t; }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ")" << std::endl;
             for (auto& param : params)
@@ -283,13 +312,14 @@ class Cast : public Expr {
         Cast(std::unique_ptr<Expr> expr, std::string type)
             : Expr(ExprKind), Value(std::move(expr)), type(type) {}
         Expr* getExpr() { return Value.get(); }
-        std::string getType() { return type; }
+        void setExpr(std::unique_ptr<Expr> e) { Value = std::move(e); }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
+        virtual std::string getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Cast:" << std::endl;
             if (Value) Value->print(indent + 2);
@@ -356,6 +386,7 @@ class Print : public Stmt {
         Print(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
             : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -397,6 +428,7 @@ class Return : public Stmt {
         Return(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
             : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -460,8 +492,11 @@ class If : public Stmt {
             : Stmt(StmtKind), expr(std::move(expr)), ifStmt(std::move(ifStmt)),
             elseStmt(std::move(elseStmt)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         Stmt* getIfStmt() { return ifStmt.get(); }
+        void setIf(std::unique_ptr<Stmt> i) { ifStmt = std::move(i); }
         Stmt* getElseStmt() { return elseStmt.get(); }
+        void setElse(std::unique_ptr<Stmt> e) { elseStmt = std::move(e); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -492,7 +527,9 @@ class While : public Stmt {
         While(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> stmt, llvm::SMLoc loc)
             : Stmt(StmtKind), expr(std::move(expr)), stmt(std::move(stmt)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         Stmt* getStmt() { return stmt.get(); }
+        void setStmt(std::unique_ptr<Stmt> s) { stmt = std::move(s); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -519,7 +556,11 @@ class Until : public Stmt {
         Until(std::unique_ptr<Expr> expr, std::unique_ptr<Stmt> stmt, llvm::SMLoc loc)
             : Stmt(StmtKind), expr(std::move(expr)), stmt(std::move(stmt)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        std::unique_ptr<Expr> getUniqueExpr() { return std::move(expr); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         Stmt* getStmt() { return stmt.get(); }
+        std::unique_ptr<Stmt> getUniqueStmt() { return std::move(stmt); }
+        void setStmt(std::unique_ptr<Stmt> s) { stmt = std::move(s); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -551,8 +592,11 @@ class For : public Stmt {
             update(std::move(change)), stmt(std::move(stmt)), loc(loc) {}
         Stmt* getDecl() { return decl.get(); }
         Expr* getCond() { return cond.get(); }
+        void setCond(std::unique_ptr<Expr> c) { cond = std::move(c); }
         Expr* getUpdate() { return update.get(); }
+        void setUpdate(std::unique_ptr<Expr> u) { update = std::move(u); }
         Stmt* getStmt() { return stmt.get(); }
+        void setStmt(std::unique_ptr<Stmt> s) { stmt = std::move(s); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -588,6 +632,7 @@ class FunStmt : public Stmt {
         llvm::SmallVector<std::unique_ptr<Declare>, 256> &getParams() { return params; }
         Token getType() { return type; }
         Stmt* getBody() { return body.get(); }
+        void setBody(std::unique_ptr<Stmt> s) { body = std::move(s); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -655,6 +700,7 @@ class ExprStmt : public Stmt {
         ExprStmt(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
             : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);

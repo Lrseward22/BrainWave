@@ -17,7 +17,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         src/lib/Parser/Parser.cpp
         src/lib/Sema/Environment.cpp
         src/lib/Sema/Sema.cpp
-        #src/lib/Generator/CodeGen.cpp
+        src/lib/Generator/CodeGen.cpp
     )
 endif()
 

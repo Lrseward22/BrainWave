@@ -1,6 +1,4 @@
-//#include <brainwave/Utils/Diagnostics.h>
-#include <brainwave/Sema/Sema.h>
-//#include <brainwave/Generator/CodeGen.h>
+#include <brainwave/Generator/CodeGen.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/raw_ostream.h"
@@ -189,10 +187,8 @@ int main(int argc_, const char **argv_) {
         auto TheLexer = Lexer(SrcMgr, Diags);
         auto TheParser = Parser(TheLexer);
         auto TheSema = Sema(TheParser);
-        TheSema.next();
-        //auto TheGenerator = CodeGen(TheParser);
+        auto TheGenerator = CodeGen(TheSema);
 
-        /*
         llvm::TargetMachine* TM = createTargetMachine(argv_[0]);
         if (!TM) {
             llvm::errs() << "Failed to create the Target Machine\n";
@@ -240,7 +236,6 @@ int main(int argc_, const char **argv_) {
 
             llvm::sys::fs::remove(ObjectFile);
         }
-        */
     }
 
     return 0;
