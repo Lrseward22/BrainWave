@@ -2,6 +2,7 @@
 #define BRAINWAVE_AST_AST_H
 
 #include <brainwave/Utils/Token.h>
+#include <brainwave/Utils/Type.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
@@ -94,8 +95,8 @@ public:
 class Expr : public AST {
 public:
     Expr(Kind K) : AST(K) {}
-    virtual void setType(std::string t) {}
-    virtual std::string getType() = 0;
+    virtual void setType(Ty::Type t) {}
+    virtual Ty::Type getType() = 0;
 };
 
 // TermExpr, FactorExpr, BoolExpr
@@ -103,7 +104,7 @@ class BinaryOp : public Expr {
     std::unique_ptr<Expr> left;
     Token op;
     std::unique_ptr<Expr> right;
-    std::string type;
+    Ty::Type type;
 
     public:
         BinaryOp(std::unique_ptr<Expr> left, const Token& op, std::unique_ptr<Expr> right) 
@@ -121,8 +122,8 @@ class BinaryOp : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Binary Op: (" << op.getLexeme().str() << ")" << std::endl;
             if (left) left->print(indent + 2);
@@ -133,7 +134,7 @@ class BinaryOp : public Expr {
 class UnaryOp : public Expr {
     Token op;
     std::unique_ptr<Expr> expr;
-    std::string type;
+    Ty::Type type;
 
     public:
         UnaryOp(const Token& op, std::unique_ptr<Expr> expr)
@@ -147,8 +148,8 @@ class UnaryOp : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Unary Op: (" << op.getLexeme().str() << ")" << std::endl;
             if (expr) expr->print(indent + 2);
@@ -157,7 +158,7 @@ class UnaryOp : public Expr {
 
 class Grouping : public Expr {
     std::unique_ptr<Expr> expr;
-    std::string type;
+    Ty::Type type;
 
     public:
         Grouping(std::unique_ptr<Expr> expr) : Expr(ExprKind), expr(std::move(expr)) {}
@@ -169,8 +170,8 @@ class Grouping : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Grouping:" << std::endl;
             if (expr) expr->print(indent + 2);
@@ -179,7 +180,7 @@ class Grouping : public Expr {
 
 class Literal : public Expr {
     Token literal;
-    std::string type;
+    Ty::Type type;
 
     public:
         Literal(const Token& tok) : Expr(ExprKind), literal(tok) {}
@@ -188,8 +189,8 @@ class Literal : public Expr {
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
@@ -200,7 +201,7 @@ class Literal : public Expr {
 
 class Variable : public Expr {
     Token identifier;
-    std::string type;
+    Ty::Type type;
 
     public:
         Variable(const Token& tok) : Expr(VariableKind), identifier(tok) {}
@@ -212,8 +213,8 @@ class Variable : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == VariableKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ')' << std::endl;
         }
@@ -223,7 +224,7 @@ class Logical : public Expr {
     std::unique_ptr<Expr> left;
     Token op;
     std::unique_ptr<Expr> right;
-    std::string type;
+    Ty::Type type;
 
     public:
         Logical(std::unique_ptr<Expr> left, const Token& op, std::unique_ptr<Expr> right) 
@@ -241,8 +242,8 @@ class Logical : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Logical: (" << op.getLexeme().str() << ")" << std::endl;
             if (left) left->print(indent + 2);
@@ -254,7 +255,7 @@ class Assign : public Expr {
     Token identifier;
     Token op;
     std::unique_ptr<Expr> expr;
-    std::string type;
+    Ty::Type type;
 
     public:
         Assign(Token identifier, const Token& op, std::unique_ptr<Expr> expr)
@@ -270,8 +271,8 @@ class Assign : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == AssignKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Assign: (" << identifier.getIdentifier().str() << ")" << std::endl;
             std::cout << std::string(indent + 2, ' ') << "Op: (" << op.getLexeme().str() << ")" << std::endl;
@@ -282,7 +283,7 @@ class Assign : public Expr {
 class FunExpr : public Expr {
     Token identifier;
     llvm::SmallVector<std::unique_ptr<Expr>, 256> params;
-    std::string type;
+    Ty::Type type;
 
     public:
         FunExpr(const Token& tok, llvm::SmallVector<std::unique_ptr<Expr>, 256> &paramslst)
@@ -295,8 +296,8 @@ class FunExpr : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
-        void setType(std::string t) { type = t; }
-        virtual std::string getType() { return type; }
+        void setType(Ty::Type t) { type = t; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ")" << std::endl;
             for (auto& param : params)
@@ -306,10 +307,10 @@ class FunExpr : public Expr {
 
 class Cast : public Expr {
     std::unique_ptr<Expr> Value;
-    std::string type;
+    Ty::Type type;
 
     public:
-        Cast(std::unique_ptr<Expr> expr, std::string type)
+        Cast(std::unique_ptr<Expr> expr, Ty::Type type)
             : Expr(ExprKind), Value(std::move(expr)), type(type) {}
         Expr* getExpr() { return Value.get(); }
         void setExpr(std::unique_ptr<Expr> e) { Value = std::move(e); }
@@ -319,11 +320,11 @@ class Cast : public Expr {
         static bool classof(const AST* A) {
             return A->getKind() == ExprKind;
         }
-        virtual std::string getType() { return type; }
+        virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Cast:" << std::endl;
             if (Value) Value->print(indent + 2);
-            std::cout << std::string(indent+2, ' ') << "to " << type << std::endl;
+            std::cout << std::string(indent+2, ' ') << "to " << type.get().str() << std::endl;
         }
 };
 
@@ -358,14 +359,17 @@ class Block : public Stmt {
 };
 
 class Declare : public Stmt {
-    Token type;
+    Ty::Type type;
     std::unique_ptr<Expr> expr;
+    llvm::SMLoc loc;
 
     public:
-        Declare(const Token& type, std::unique_ptr<Expr> expr)
-            : Stmt(StmtKind), type(type), expr(std::move(expr)) {}
-        Token getType() { return type; }
+        Declare(Token& type, std::unique_ptr<Expr> expr)
+            : Stmt(StmtKind), type(type.getLexeme()),
+            expr(std::move(expr)), loc(type.getLocation()) {}
+        Ty::Type getType() { return type; }
         Expr* getExpr() { return expr.get(); }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -373,7 +377,7 @@ class Declare : public Stmt {
             return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Declare: (" << type.getLexeme().str() << ")\n";
+            std::cout << std::string(indent, ' ') << "Declare: (" << type.get().str() << ")\n";
             if (expr) expr->print(indent + 2);
         }
 };
@@ -619,18 +623,18 @@ class FunStmt : public Stmt {
     private:
     Token identifier;
     llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
-    Token type;
+    Ty::Type type;
     std::unique_ptr<Stmt> body;
     llvm::SMLoc loc;
 
     public:
         FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
-                const Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc)
+                Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc)
             : Stmt(FunKind), identifier(tok), params(std::move(params)),
-              type(type), body(std::move(body)), loc(loc) {}
+              type(Ty::Type(type.getLexeme())), body(std::move(body)), loc(loc) {}
         Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Declare>, 256> &getParams() { return params; }
-        Token getType() { return type; }
+        Ty::Type getType() { return type; }
         Stmt* getBody() { return body.get(); }
         void setBody(std::unique_ptr<Stmt> s) { body = std::move(s); }
         llvm::SMLoc getLoc() { return loc; }
@@ -641,7 +645,7 @@ class FunStmt : public Stmt {
             return A->getKind() == FunKind;
         }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Fun stmt: " << type.getLexeme().str() << " " << identifier.getIdentifier().str() << std::endl;
+            std::cout << std::string(indent, ' ') << "Fun stmt: " << type.get().str() << " " << identifier.getIdentifier().str() << std::endl;
             std::cout << std::string(indent+2, ' ') << "Parameters: ";
             for (auto& param : params)
                 param->print(indent+2);

@@ -9,14 +9,6 @@ std::unique_ptr<AST> Parser::parse() {
     if (atEnd())
         return nullptr;
     stmt = std::move(parseStmt());
-    //while (!atEnd()) {
-    //    //std::cout << "\nToken Kind: " << tok::getTokenName(Tok.getKind()) << '\n';
-    //    //std::cout << "Lexeme: " << Tok.getLexeme().str() << '\n';
-    //    //advance();
-    //    stmt = std::move(parseStmt());
-    //    stmt->print();
-    //    std::cout << "\n\n\n";
-    //}
     return std::move(stmt);
 }
 
@@ -182,15 +174,10 @@ std::unique_ptr<Expr> Parser::parseFunExpr(Token identifier) {
 
 // STATEMENTS
 
-//FIXME: For user defined types, add tok::TokenKind::IDENTIFIER
-//       We need to also check if two identifiers are adjacent to distinguish
-//       assignment and declarations
 std::unique_ptr<Stmt> Parser::parseStmt() {
     if (match(tok::TokenKind::L_CURLY))
         return parseBlock();
-    if (Tok.isOneOf(tok::TokenKind::kw_int, tok::TokenKind::kw_bool,
-                    tok::TokenKind::kw_float, tok::TokenKind::kw_double,
-                    tok::TokenKind::kw_string, tok::TokenKind::kw_void))
+    if (Ty::isDefined(Tok.getLexeme()))
         return parseDeclareStmt();
     if (match(tok::TokenKind::kw_print))
         return parsePrint();
@@ -356,9 +343,7 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
     consume(tok::TokenKind::R_PAREN);
     consume(tok::TokenKind::ARROW);
     Token type;
-    if (Tok.isOneOf(tok::TokenKind::kw_int, tok::TokenKind::kw_bool,
-                    tok::TokenKind::kw_float, tok::TokenKind::kw_double,
-                    tok::TokenKind::kw_string, tok::TokenKind::kw_void))
+    if (Ty::isDefined(Tok.getLexeme()))
         type = Tok;
     else
         FunReturnError();

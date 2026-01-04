@@ -2,6 +2,7 @@
 #define BRAINWAVE_SEMA_ENVIRONMENT_H
 
 #include <brainwave/Utils/Token.h>
+#include <brainwave/Utils/Type.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringMap.h"
@@ -34,7 +35,7 @@ inline std::ostream& operator<<(std::ostream& os, EnvKind k) {
 
 class Environment {
     Environment *parent;
-    llvm::StringMap<llvm::StringRef> typeMap;
+    llvm::StringMap<Ty::Type> typeMap;
     llvm::StringMap<llvm::AllocaInst*> allocations;
     llvm::StringMap<std::unique_ptr<FunStmt>> funcMap;
     llvm::StringMap<int> indexMap;
@@ -45,8 +46,8 @@ class Environment {
     Environment(EnvKind kind, Environment *parent) 
         : parent(parent), kind(kind) {}
 
-    bool defineVar(llvm::StringRef name, llvm::StringRef type);
-    llvm::StringRef getVar(Token name);
+    bool defineVar(llvm::StringRef name, Ty::Type type);
+    Ty::Type* getVar(Token name);
     bool declareAlloca(llvm::StringRef name, llvm::AllocaInst* alloca);
     llvm::AllocaInst* getAlloca(llvm::StringRef name);
     int getIndex(llvm::StringRef name);

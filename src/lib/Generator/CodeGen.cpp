@@ -42,13 +42,13 @@ class IRVisitor : public ASTVisitor {
         Builder.SetInsertPoint(Curr);
     }
 
-    Type* mapType(std::string T) {
-        if (T == "bool") return BoolTy;
-        else if (T == "int") return Int32Ty;
-        else if (T == "float") return FloatTy;
-        else if (T == "double") return DoubleTy;
-        else if (T == "void") return VoidTy;
-        else if (T == "string"); // FIXME: Add string
+    Type* mapType(Ty::Type T) {
+        if (T.is(Ty::TypeKind::Bool)) return BoolTy;
+        else if (T.get() == "int") return Int32Ty;
+        else if (T.get() == "float") return FloatTy;
+        else if (T.get() == "double") return DoubleTy;
+        else if (T.is(Ty::TypeKind::Void)) return VoidTy;
+        else if (T.is(Ty::TypeKind::String)); // FIXME: Add string
         return nullptr;
     }
 
@@ -93,10 +93,10 @@ public:
         Value* left = V;
         expr.getRight()->accept(*this);
         Value* right = V;
-        std::string Type = expr.getType();
+        Ty::Type Type = expr.getType();
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUS:
-                if (Type == "string");
+                if (Type.get() == "string");
                 // FIXME: String Concatonation
                 else
                     V = Builder.CreateAdd(left, right);
@@ -108,17 +108,17 @@ public:
                 V = Builder.CreateMul(left, right);
                 break;
             case tok::TokenKind::SLASH:
-                if (Type == "int") V = Builder.CreateSDiv(left, right);
+                if (Type.get() == "int") V = Builder.CreateSDiv(left, right);
                 else V = Builder.CreateFDiv(left, right);
                 break;
             case tok::TokenKind::CARET:
-                if (Type == "int") {
+                if (Type.get() == "int") {
                     // FIXME: No build in power for ints. Runtime library it probably
-                } else if (Type == "float") {
+                } else if (Type.get() == "float") {
                     Function* PowFn = Intrinsic::getDeclaration(
                             M, Intrinsic::pow, {FloatTy});
                     V = Builder.CreateCall(PowFn, {left, right});
-                } else if (Type == "double") {
+                } else if (Type.get() == "double") {
                     Function* PowFn = Intrinsic::getDeclaration(
                             M, Intrinsic::pow, {DoubleTy});
                     V = Builder.CreateCall(PowFn, {left, right});
@@ -128,56 +128,56 @@ public:
                 V = Builder.CreateSRem(left, right);
                 break;
             case tok::TokenKind::EQ:
-                if (Type == "int" || Type == "bool")
+                if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpEQ(left, right);
-                else if (Type == "float" || Type == "double")
+                else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOEQ(left, right);
-                else if (Type == "string")
+                else if (Type.is(Ty::TypeKind::String))
                     // FIXME: Runtime library for this
                     ;
                 break;
             case tok::TokenKind::NEQ:
-                if (Type == "int" || Type == "bool")
+                if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpNE(left, right);
-                else if (Type == "float" || Type == "double")
+                else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpONE(left, right);
-                else if (Type == "string")
+                else if (Type.is(Ty::TypeKind::String))
                     // FIXME: Runtime library for this
                     ;
                 break;
             case tok::TokenKind::LESS:
-                if (Type == "int" || Type == "bool")
+                if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSLT(left, right);
-                else if (Type == "float" || Type == "double")
+                else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOLT(left, right);
-                else if (Type == "string")
+                else if (Type.is(Ty::TypeKind::String))
                     // FIXME: Runtime library for this
                     ;
                 break;
             case tok::TokenKind::LEQ:
-                if (Type == "int" || Type == "bool")
+                if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSLE(left, right);
-                else if (Type == "float" || Type == "double")
+                else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOLE(left, right);
-                else if (Type == "string")
+                else if (Type.is(Ty::TypeKind::String))
                     // FIXME: Runtime library for this
                     ;
                 break;
             case tok::TokenKind::GREATER:
-                if (Type == "int" || Type == "bool")
+                if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSGT(left, right);
-                else if (Type == "float" || Type == "double")
+                else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOGT(left, right);
-                else if (Type == "string")
+                else if (Type.is(Ty::TypeKind::String))
                     // FIXME: Runtime library for this
                     ;
                 break;
             case tok::TokenKind::GEQ:
-                if (Type == "int" || Type == "bool")
+                if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSGE(left, right);
-                else if (Type == "float" || Type == "double")
+                else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOGE(left, right);
-                else if (Type == "string")
+                else if (Type.is(Ty::TypeKind::String))
                     // FIXME: Runtime library for this
                     ;
                 break;
@@ -186,7 +186,7 @@ public:
     virtual void visit(UnaryOp &expr) override {
         expr.getExpr()->accept(*this);
         Value* e = V;
-        std::string Type = expr.getType();
+        Ty::Type Type = expr.getType();
         Constant* One;
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::BANG:
@@ -201,25 +201,25 @@ public:
         expr.getExpr()->accept(*this);
     };
     virtual void visit(Literal &expr) override {
-        std::string Type = expr.getType();
-        if (Type == "bool") {
+        Ty::Type Type = expr.getType();
+        if (Type.is(Ty::TypeKind::Bool)) {
             if (expr.getTok().is(tok::TokenKind::kw_true))
                 V = ConstantInt::get(BoolTy, 1, true);
             else V = ConstantInt::get(BoolTy, 0, true);
-        } else if (Type == "int") {
+        } else if (Type.get() == "int") {
             int intval;
             expr.getData().getAsInteger(10, intval);
             V = ConstantInt::get(Int32Ty, intval, true);
-        } else if (Type == "float") {
+        } else if (Type.get() == "float") {
             double temp;
             expr.getData().getAsDouble(temp);
             float fval = static_cast<float>(temp);
             V = ConstantFP::get(FloatTy, fval);
-        } else if (Type == "double") {
+        } else if (Type.get() == "double") {
             double dval;
             expr.getData().getAsDouble(dval);
             V = ConstantFP::get(DoubleTy, dval);
-        } else if (Type == "string") {
+        } else if (Type.is(Ty::TypeKind::String)) {
             // Deal with this later
         }
     };
@@ -230,32 +230,36 @@ public:
     virtual void visit(Logical &expr) override {
         expr.getLeft()->accept(*this);
         Value* left = V;
-        BasicBlock* RHS = createBasicBlock("logical.rhs");
+        BasicBlock* LHS = Curr;
+        BasicBlock* RHS;
+        BasicBlock* RightBB = createBasicBlock("logical.rhs");
         BasicBlock* Merge = createBasicBlock("logical.merge");
         if (expr.getOp().is(tok::TokenKind::AND)) {
             Builder.CreateCondBr(left, RHS, Merge);
 
-            setCurr(RHS);
+            setCurr(RightBB);
             expr.getRight()->accept(*this);
             Value* right = V;
+            RHS = Curr;
             Builder.CreateBr(Merge);
 
             setCurr(Merge);
             PHINode* phi = Builder.CreatePHI(BoolTy, 2);
-            phi->addIncoming(ConstantInt::getFalse(BoolTy), Curr);
+            phi->addIncoming(ConstantInt::getFalse(BoolTy), LHS);
             phi->addIncoming(right, RHS);
             V = phi;
         } else if (expr.getOp().is(tok::TokenKind::OR)) {
             Builder.CreateCondBr(left, Merge, RHS);
 
-            setCurr(RHS);
+            setCurr(RightBB);
             expr.getRight()->accept(*this);
             Value* right = V;
+            RHS = Curr;
             Builder.CreateBr(Merge);
 
             setCurr(Merge);
             PHINode* phi = Builder.CreatePHI(BoolTy, 2);
-            phi->addIncoming(ConstantInt::getTrue(BoolTy), Curr);
+            phi->addIncoming(ConstantInt::getTrue(BoolTy), LHS);
             phi->addIncoming(right, RHS);
             V = phi;
         }
@@ -263,7 +267,7 @@ public:
     virtual void visit(Assign &expr) override {
         auto id = expr.getIdentifier().getIdentifier();
         AllocaInst* alloca = env->getAlloca(id);
-        std::string Type = expr.getType();
+        Ty::Type Type = expr.getType();
         if (!alloca) {
             alloca = Builder.CreateAlloca(mapType(Type), nullptr, id);
             // FIXME: Add strings later
@@ -284,16 +288,16 @@ public:
     };
     virtual void visit(Cast &expr) override {
         expr.getExpr()->accept(*this);
-        std::string fromType = expr.getExpr()->getType();
-        std::string toType = expr.getType();
-        if (toType == "int")
+        Ty::Type fromType = expr.getExpr()->getType();
+        Ty::Type toType = expr.getType();
+        if (toType.get() == "int")
             V = Builder.CreateFPToSI(V, Int32Ty);
-        else if (toType == "float") {
-            if (fromType == "int")
+        else if (toType.get() == "float") {
+            if (fromType.get() == "int")
                 V = Builder.CreateSIToFP(V, FloatTy);
             else V = Builder.CreateFPCast(V, FloatTy);
-        } else if (toType == "double") {
-            if (fromType == "int")
+        } else if (toType.get() == "double") {
+            if (fromType.get() == "int")
                 V = Builder.CreateSIToFP(V, DoubleTy);
             else V = Builder.CreateFPCast(V, DoubleTy);
         }
@@ -345,13 +349,15 @@ public:
 
         setCurr(IfBB);
         stmt.getIfStmt()->accept(*this);
-        Builder.CreateBr(AfterIfBB);
+        if (!Curr->getTerminator())
+            Builder.CreateBr(AfterIfBB);
         
         if (HasElse) {
             env = stmt.elseEnv;
             setCurr(ElseBB);
             stmt.getElseStmt()->accept(*this);
-            Builder.CreateBr(AfterIfBB);
+            if (!Curr->getTerminator())
+                Builder.CreateBr(AfterIfBB);
         }
 
         setCurr(AfterIfBB);
@@ -394,8 +400,9 @@ public:
         BasicBlock* PrevBreakBB = BreakBB;
 
         BasicBlock* CondBB = createBasicBlock("for.cond");
-        ContBB = CondBB;
         BasicBlock* BodyBB = createBasicBlock("for.body");
+        BasicBlock* UpdateBB = createBasicBlock("for.update");
+        ContBB = UpdateBB;
         BasicBlock* AfterForBB = createBasicBlock("after.for");
         BreakBB = AfterForBB;
 
@@ -407,9 +414,12 @@ public:
 
         setCurr(BodyBB);
         stmt.getStmt()->accept(*this);
-        stmt.getUpdate()->accept(*this);
         if (!Curr->getTerminator())
-            Builder.CreateBr(CondBB);
+            Builder.CreateBr(UpdateBB);
+
+        setCurr(UpdateBB);
+        stmt.getUpdate()->accept(*this);
+        Builder.CreateBr(CondBB);
 
         setCurr(AfterForBB);
         env = prevEnv;
@@ -424,12 +434,12 @@ public:
         // Switch Environments
         env = stmt.env;
         // Get return type
-        Type* RetTy = mapType(stmt.getType().getLexeme().str());
+        Type* RetTy = mapType(stmt.getType());
 
         // Get Parameter Types
         SmallVector<Type*, 256> FnTypes;
         for (auto& param : stmt.getParams()) {
-            FnTypes.push_back(mapType(param->getType().getLexeme().str()));
+            FnTypes.push_back(mapType(param->getType()));
         }
 
         FunctionType* FTy = FunctionType::get(
@@ -451,7 +461,7 @@ public:
             else
                 iden = static_cast<Variable*>(param->getExpr())->getData();
             AllocaInst* alloca = Builder.CreateAlloca(
-                    mapType(param->getType().getLexeme().str()),
+                    mapType(param->getType()),
                     nullptr,
                     iden);
             Builder.CreateStore(arg, alloca);

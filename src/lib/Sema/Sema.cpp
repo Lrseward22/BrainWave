@@ -3,11 +3,6 @@
 
 using namespace brainwave;
 
-// FIXME: Next steps::
-//      Change Sema::next to skip passing functions, analyze/pass next AST
-//          pass functions at the end when AST obtained from parser is null
-//      All paths return a value
-
 namespace {
 class EnvCreation : public ASTVisitor{
     // Creates environments:
@@ -152,9 +147,9 @@ public:
     };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override { 
-        llvm::StringRef type = stmt.getType().getLexeme();
+        Ty::Type type = stmt.getType();
         stmt.getExpr()->accept(*this);
-        if (type == "void")
+        if (type.is(Ty::TypeKind::Void))
             for (auto& iden : idens)
                 Diag.report(iden.getLocation(),
                             diag::err_void_iden,
@@ -181,36 +176,27 @@ class TypeChecker : public ASTVisitor{
     //      Assignments match variable types
     brainwave::DiagnosticsEngine &Diag;
     Environment* env;
-    std::string Value;
-    std::string FunType;
+    Ty::Type Value;
+    Ty::Type FunType;
     std::unique_ptr<Expr> ResolvedLeft;
     std::unique_ptr<Expr> ResolvedRight;
 
     void resolveTypes(std::unique_ptr<Expr> lhs, std::unique_ptr<Expr> rhs, Token op) {
         lhs->accept(*this);
         lhs->setType(Value);
-        std::string lType = Value;
+        Ty::Type lType = Value;
         rhs->accept(*this);
         rhs->setType(Value);
-        std::string rType = Value;
+        Ty::Type rType = Value;
 
-        if (lType == "int" && rType == "float")
-            lhs = std::make_unique<Cast>(std::move(lhs), "float");
-        else if (lType == "int" && rType == "double")
-            lhs = std::make_unique<Cast>(std::move(lhs), "double");
-        else if (lType == "float" && rType == "double")
-            lhs = std::make_unique<Cast>(std::move(lhs), "double");
-        else if (lType == "float" && rType == "int")
-            lhs = std::make_unique<Cast>(std::move(lhs), "float");
-        else if (lType == "double" && rType == "int")
-            lhs = std::make_unique<Cast>(std::move(lhs), "double");
-        else if (lType == "double" && rType == "float")
-            lhs = std::make_unique<Cast>(std::move(lhs), "double");
-        else if (lType != rType) {
+        if (!Ty::resolvable(lType, rType))
             Diag.report(op.getLocation(),
                         diag::err_bin_op_mismatch, 
-                        op.getLexeme(), lType, rType);
-        }
+                        op.getLexeme(), lType.get(), rType.get());
+        else if (resolve(lType, rType))
+            rhs = std::make_unique<Cast>(std::move(rhs), lType);
+        else
+            lhs = std::make_unique<Cast>(std::move(lhs), rType);
 
         ResolvedLeft = std::move(lhs);
         ResolvedRight = std::move(rhs);
@@ -232,33 +218,32 @@ public:
         Value = expr.getLeft()->getType();
         expr.setType(Value);
 
-        if (Value == "void") {
+        if (Value.is(Ty::TypeKind::Void)) {
             Diag.report(expr.getOp().getLocation(),
                         diag::err_void_in_expr);
             return;
         }
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUS:
-                if (Value != "int" && Value != "bool"
-                 && Value != "double" && Value != "string")
+                if (!Value.isNumeric() && !Value.is(Ty::TypeKind::String))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), Value, Value);
+                                expr.getOp().getLexeme(), Value.get(), Value.get());
                 break;
             case tok::TokenKind::MINUS:
             case tok::TokenKind::STAR:
             case tok::TokenKind::SLASH:
             case tok::TokenKind::CARET:
-                if (Value != "int" && Value != "bool" && Value != "double")
+                if (Value.isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), Value, Value);
+                                expr.getOp().getLexeme(), Value.get(), Value.get());
                 break;
             case tok::TokenKind::PERCENT:
-                if (Value != "int")
+                if (Value.get() != "int")
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), Value, Value);
+                                expr.getOp().getLexeme(), Value.get(), Value.get());
                 break;
             case tok::TokenKind::EQ:
             case tok::TokenKind::NEQ:
@@ -266,7 +251,7 @@ public:
             case tok::TokenKind::LEQ:
             case tok::TokenKind::GREATER:
             case tok::TokenKind::GEQ:
-                Value = "bool";
+                Value = Ty::Type("bool");
                 break;
         }
     };
@@ -275,16 +260,16 @@ public:
         expr.setType(Value);
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::BANG:
-                if (Value != "bool")
+                if (!Value.is(Ty::TypeKind::Bool))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
-                                expr.getOp().getLexeme(), Value);
+                                expr.getOp().getLexeme(), Value.get());
                 break;
             case tok::TokenKind::MINUS:
-                if (Value != "int" && Value != "float" && Value != "double")
+                if (!Value.isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
-                                expr.getOp().getLexeme(), Value);
+                                expr.getOp().getLexeme(), Value.get());
                 break;
             case tok::TokenKind::PLUSPLUS:
             case tok::TokenKind::MINUSMINUS:
@@ -293,10 +278,10 @@ public:
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_assign_bad_operand,
                                 expr.getOp().getLexeme());
-                if (Value != "int" && Value != "float" && Value != "double")
+                if (!Value.isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
-                                expr.getOp().getLexeme(), Value);
+                                expr.getOp().getLexeme(), Value.get());
                 break;
         }
     };
@@ -307,68 +292,66 @@ public:
     virtual void visit(Literal &expr) override {
         switch (expr.getTok().getKind()) {
             case tok::TokenKind::INTEGER_LITERAL:
-                Value = "int";
+                Value = Ty::Type("int");
                 break;
             case tok::TokenKind::FLOAT_LITERAL:
-                Value = "double";
+                Value = Ty::Type("double");
                 break;
             case tok::TokenKind::STRING_LITERAL:
-                Value = "string";
+                Value = Ty::Type("string");
                 break;
             case tok::TokenKind::kw_true:
             case tok::TokenKind::kw_false:
-                Value = "bool";
+                Value = Ty::Type("bool");
                 break;
         }
         expr.setType(Value);
     };
     virtual void visit(Variable &expr) override {
-        llvm::StringRef v = env->getVar(expr.getIdentifier());
-        Value = v.str();
+        Value = *env->getVar(expr.getIdentifier());
         expr.setType(Value);
     };
     virtual void visit(Logical &expr) override {
         resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
         expr.setLeft(std::move(ResolvedLeft));
         expr.setRight(std::move(ResolvedRight));
-        if (Value != "bool")
+        if (!Value.is(Ty::TypeKind::Bool))
             Diag.report(expr.getOp().getLocation(),
                         diag::err_bin_op_mismatch, 
-                        expr.getOp().getLexeme(), Value, Value);
-        Value = "bool";
+                        expr.getOp().getLexeme(), Value.get(), Value.get());
+        Value = Ty::Type("bool");
         expr.setType(Value);
     };
     virtual void visit(Assign &expr) override {
-        llvm::StringRef v = env->getVar(expr.getIdentifier());
+        Ty::Type varType = *env->getVar(expr.getIdentifier());
         expr.getExpr()->accept(*this);
-        if (v.str() != Value || Value == "void") {
-            if (Value == "int" || Value == "float" || Value == "double")
-                expr.setExpr(std::make_unique<Cast>(std::move(expr.getUnique()), v.str()));
-            else if (Value == "void")
+        if (!Ty::equals(varType, Value) || Value.is(Ty::TypeKind::Void)) {
+            if (Value.isNumeric())
+                expr.setExpr(std::make_unique<Cast>(std::move(expr.getUnique()), varType));
+            else if (Value.is(Ty::TypeKind::Void))
                 Diag.report(expr.getIdentifier().getLocation(),
                             diag::err_void_assignment);
             else
                 Diag.report(expr.getIdentifier().getLocation(),
                             diag::err_var_mismatch,
                             expr.getIdentifier().getIdentifier(),
-                            v, Value);
+                            varType.get(), Value.get());
         }
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUSEQUAL:
-                if (Value != "int" && Value != "float"
-                    && Value != "double" && Value != "string")
+                if (!Value.isNumeric() && !Value.is(Ty::TypeKind::String))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), v, Value);
+                                expr.getOp().getLexeme(), varType.get(), Value.get());
                 break;
             case tok::TokenKind::MINUSEQUAL:
-                if (Value != "int" && Value != "float" && Value != "double")
+                if (!Value.isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), v, Value);
+                                expr.getOp().getLexeme(), varType.get(), Value.get());
                 break;
         }
-        Value = v.str();
+        Value = varType;
         expr.setType(Value);
     };
     virtual void visit(FunExpr &expr) override { 
@@ -386,25 +369,25 @@ public:
                 Environment* funcEnv = func->env;
                 auto& exprParams = expr.getParams();
                 for (int i = 0; i < funcParams.size(); i++) {
-                    std::string reqType = funcParams[i]->getType().getLexeme().str();
+                    Ty::Type reqType = funcParams[i]->getType();
                     exprParams[i]->accept(*this);
-                    if (reqType != Value) {
-                        if ((Value == "int" || Value == "float" || Value == "double") &&
-                            (reqType == "int" || reqType == "float" || reqType == "double"))
+                    if (!Ty::equals(reqType, Value)) {
+                        if ((Value.isNumeric()) &&
+                            (reqType.isNumeric()))
                             exprParams[i] = std::make_unique<Cast>(std::move(exprParams[i]), reqType);
                         else {
                             Diag.report(expr.getIdentifier().getLocation(),
                                         diag::err_fun_param_type, 
                                         i, expr.getIdentifier().getIdentifier(),
-                                        reqType, Value);
+                                        reqType.get(), Value.get());
                             Diag.report(func->getLoc(), diag::note_fun_declared_here);
                         }
                     }
                 }
             }
-            Value = func->getType().getLexeme().str();
+            Value = func->getType();
         } else
-            Value = "void";
+            Value = Ty::Type("void");
         expr.setType(Value);
     };
     virtual void visit(Cast &expr) override {
@@ -426,10 +409,10 @@ public:
     virtual void visit(Return &stmt) override { 
         if (stmt.getExpr())
             stmt.getExpr()->accept(*this);
-        else Value = "void";
-        if (FunType != Value)
+        else Value = Ty::Type("void");
+        if (!Ty::equals(FunType, Value))
             Diag.report(stmt.getLoc(), diag::err_bad_return_type,
-                        FunType, Value);
+                        FunType.get(), Value.get());
     };
     virtual void visit(Break &stmt) override { };
     virtual void visit(Continue &stmt) override { };
@@ -437,7 +420,7 @@ public:
         Environment* prev = env;
         env = stmt.ifEnv;
         stmt.getExpr()->accept(*this);
-        if (Value != "bool")
+        if (!Value.is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "if");
         stmt.getIfStmt()->accept(*this);
         if (stmt.getElseStmt()) {
@@ -450,7 +433,7 @@ public:
         Environment* prev = env;
         env = stmt.env;
         stmt.getExpr()->accept(*this);
-        if (Value != "bool")
+        if (!Value.is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "while");
         stmt.getStmt()->accept(*this);
         env = prev;
@@ -459,7 +442,7 @@ public:
         Environment* prev = env;
         env = stmt.env;
         stmt.getExpr()->accept(*this);
-        if (Value != "bool")
+        if (!Value.is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "until");
         stmt.getStmt()->accept(*this);
         env = prev;
@@ -469,7 +452,7 @@ public:
         env = stmt.env;
         stmt.getDecl()->accept(*this);
         stmt.getCond()->accept(*this);
-        if (Value != "bool")
+        if (!Value.is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "for");
         stmt.getUpdate()->accept(*this);
         stmt.getStmt()->accept(*this);
@@ -479,7 +462,7 @@ public:
         // FIXME: Might need to check that no parameters are void
         Environment* prev = env;
         env = stmt.env;
-        FunType = stmt.getType().getLexeme().str();
+        FunType = stmt.getType();
         stmt.getBody()->accept(*this);
         env = prev;
     };
@@ -521,7 +504,7 @@ public:
     };
     virtual void visit(Literal &expr) override { };
     virtual void visit(Variable &expr) override {
-        if (env->getVar(expr.getIdentifier()) == "")
+        if (!env->getVar(expr.getIdentifier())) 
             Diag.report(expr.getIdentifier().getLocation(),
                         diag::err_iden_undeclared, 
                         expr.getData());
@@ -531,7 +514,7 @@ public:
         expr.getRight()->accept(*this);
     };
     virtual void visit(Assign &expr) override {
-        if (env->getVar(expr.getIdentifier()) == "")
+        if (!env->getVar(expr.getIdentifier()))
             Diag.report(expr.getIdentifier().getLocation(),
                         diag::err_iden_undeclared, 
                         expr.getIdentifier().getIdentifier());
@@ -562,7 +545,7 @@ public:
         stmt.getExpr()->accept(*this);
     };
     virtual void visit(Read &stmt) override {
-        if (env->getVar(stmt.getIdentifier()) == "")
+        if (!env->getVar(stmt.getIdentifier()))
             Diag.report(stmt.getIdentifier().getLocation(),
                         diag::err_iden_undeclared, 
                         stmt.getIdentifier().getIdentifier());
@@ -803,7 +786,7 @@ public:
         env = stmt.env;
         stmt.getBody()->accept(*this);
         env = prev;
-        if (!mustReturn && stmt.getType().getLexeme().str() != "void")
+        if (!mustReturn && !stmt.getType().is(Ty::TypeKind::Void))
             Diag.report(stmt.getLoc(), diag::err_missing_return);
         mustReturn = false;
     };
@@ -816,7 +799,7 @@ public:
     };
     virtual void visit(Declare &stmt) override {
         if (escape && !warned) {
-            Diag.report(stmt.getType().getLocation(), diag::warn_unreachable_code);
+            Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
             warned = true;
         }
     };
@@ -872,7 +855,7 @@ public:
 
         if (expr.getOp().isOneOf(tok::TokenKind::PLUSPLUS, tok::TokenKind::MINUSMINUS)) {
             if (Variable* var = llvm::dyn_cast<Variable>(expr.getExpr())) {
-                std::string type = expr.getType();
+                Ty::Type type = expr.getType();
                 Token identifier = var->getIdentifier();
 
                 // Create Token for Literal 1
@@ -933,7 +916,7 @@ public:
             ReplaceExpr = nullptr;
         }
         if (!expr.getOp().is(tok::TokenKind::EQUAL)) {
-            std::string type = expr.getType();
+            Ty::Type type = expr.getType();
             Token identifier = expr.getIdentifier();
 
             // Create Expression for variable

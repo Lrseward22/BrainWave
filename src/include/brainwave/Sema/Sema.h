@@ -10,6 +10,7 @@ class Sema {
 
     public:
     Sema(Parser &P) : P(P) { 
+        Ty::initializeBuiltInTypes();
         auto env = std::make_unique<Environment>(EnvKind::Base, nullptr);
         envs.push_back(std::move(env));
     }

@@ -13,6 +13,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_sources(brain PRIVATE
         src/lib/Utils/Diagnostics.cpp
         src/lib/Utils/TokenKinds.cpp
+        src/lib/Utils/Type.cpp
         src/lib/Lexer/Lexer.cpp
         src/lib/Parser/Parser.cpp
         src/lib/Sema/Environment.cpp

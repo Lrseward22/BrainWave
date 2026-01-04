@@ -1,7 +1,7 @@
 #include <brainwave/Sema/Environment.h>
 #include <brainwave/Parser/AST.h>
 
-bool Environment::defineVar(llvm::StringRef name, llvm::StringRef type) {
+bool Environment::defineVar(llvm::StringRef name, Ty::Type type) {
     if (typeMap.count(name))
         return true;
     typeMap[name] = type;
@@ -9,12 +9,12 @@ bool Environment::defineVar(llvm::StringRef name, llvm::StringRef type) {
     return false;
 }
 
-llvm::StringRef Environment::getVar(Token name) {
+Ty::Type* Environment::getVar(Token name) {
     if (typeMap.count(name.getLexeme()))
-        return typeMap[name.getLexeme()];
+        return &typeMap[name.getLexeme()];
     else if (parent != nullptr)
         return parent->getVar(name);
-    return "";
+    return nullptr;
 }
 
 bool Environment::declareAlloca(llvm::StringRef name, llvm::AllocaInst* alloca) {
