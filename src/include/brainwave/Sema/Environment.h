@@ -11,6 +11,9 @@
 #include <memory>
 
 class FunStmt;
+class ClassStmt;
+class ClassInfo;
+class Environment;
 
 enum class EnvKind {
     Base,
@@ -33,11 +36,23 @@ inline std::ostream& operator<<(std::ostream& os, EnvKind k) {
     return os << "Unknown";
 }
 
+class ClassInfo {
+    friend class Environment;
+    Environment* env;
+    std::unique_ptr<ClassStmt> def;
+
+    public:
+    ClassInfo() : env(nullptr), def(nullptr) { }
+    ClassInfo(Environment* env) : env(env), def(nullptr) { }
+    ClassInfo(Environment* env, std::unique_ptr<ClassStmt> def) : env(env), def(std::move(def)) { }
+};
+
 class Environment {
     Environment *parent;
     llvm::StringMap<Ty::Type> typeMap;
     llvm::StringMap<llvm::AllocaInst*> allocations;
     llvm::StringMap<std::unique_ptr<FunStmt>> funcMap;
+    llvm::StringMap<ClassInfo> classMap;
     llvm::StringMap<int> indexMap;
     int indexCount = 0;
     EnvKind kind;
@@ -56,7 +71,15 @@ class Environment {
     bool defineFunc(llvm::StringRef name, std::unique_ptr<FunStmt> FuncAST);
     bool defineFunc(llvm::StringRef name);
     void attachFunc(llvm::StringRef name, std::unique_ptr<FunStmt> FuncAST);
-    FunStmt* getFunc(llvm::StringRef funcName);
+    FunStmt* getFunc(llvm::StringRef name);
+    const llvm::StringMap<std::unique_ptr<FunStmt>>& getFuncs() { return funcMap; }
+    bool defineClass(llvm::StringRef name, Environment* ClassEnv);
+    bool defineClass(llvm::StringRef name);
+    void attachClass(llvm::StringRef name, std::unique_ptr<ClassStmt> stmt);
+    Environment* getClass(llvm::StringRef name);
+    bool hasMember(llvm::StringRef name);
+    bool isLocal(llvm::StringRef name);
+    bool isGlobal(llvm::StringRef name);
     llvm::SmallVector<FunStmt*, 256> getAllFuncs() { 
         llvm::SmallVector<FunStmt*, 256> funcs;
         for (auto& entry : funcMap)

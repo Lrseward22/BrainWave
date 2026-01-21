@@ -7,13 +7,16 @@ namespace {
 class EnvCreation : public ASTVisitor{
     // Creates environments:
     //      Defines declared Variables
-    //      Defines declared functions
+    //      Defines declared Functions
+    //      Defines declared Classes
     //      Creates Scopes
     brainwave::DiagnosticsEngine &Diag;
     llvm::SmallVector<std::unique_ptr<Environment>, 256>* envs;
     Environment* baseEnv;
     Environment* currEnv;
     llvm::SmallVector<Token, 256> idens;
+    Ty::Type classType;
+    bool inClass = false;
 
     void pushEnv(EnvKind kind) {
         auto env = std::make_unique<Environment>(kind, currEnv);
@@ -55,9 +58,9 @@ public:
         expr.getRight()->accept(*this);
     };
     virtual void visit(Assign &expr) override { 
-        idens.push_back(expr.getIdentifier());
-        if (auto* func = llvm::dyn_cast<Assign>(expr.getExpr()))
-            expr.getExpr()->accept(*this);
+        expr.getLHS()->accept(*this);
+        if (auto* rhs = llvm::dyn_cast<Assign>(expr.getRHS()))
+            rhs->accept(*this);
     };
     virtual void visit(FunExpr &expr) override { 
         for (const auto& p: expr.getParams())
@@ -122,14 +125,26 @@ public:
     };
     virtual void visit(FunStmt &stmt) override { 
         // Environment creation for function
+        std::unique_ptr<Declare> thisParam = nullptr;
+        if (inClass) {
+            static const char* thisStr = "this";
+            Token thisToken = Token(thisStr, 4, tok::TokenKind::kw_this);
+            std::unique_ptr<Expr> thisVar = std::make_unique<Variable>(thisToken);
+            thisParam = std::make_unique<Declare>(classType, std::move(thisVar), stmt.getLoc());
+            stmt.insertParamFront(std::move(thisParam));
+
+            if (!stmt.isConstructor())
+                stmt.setKind(FunctionKind::METHOD);
+        }
+
         pushEnv(EnvKind::Function);
-        for (const auto& s : stmt.getParams())
-            s->accept(*this);
+        for (const auto& p : stmt.getParams())
+            p->accept(*this);
         stmt.getBody()->accept(*this);
         stmt.env = currEnv;
         popEnv();
 
-        // Register function in base environment
+        // Register function in base/class environment
         if (currEnv->defineFunc(stmt.getIdentifier().getIdentifier())) {
             llvm::StringRef iden = stmt.getIdentifier().getIdentifier();
             Diag.report(stmt.getIdentifier().getLocation(), 
@@ -140,27 +155,65 @@ public:
         }
     };
     virtual void visit(ClassStmt &stmt) override { 
+        // Register class identifier in Type table
+        Ty::declareType(stmt.getIdentifier().getIdentifier());
+        classType = Ty::Type(stmt.getIdentifier().getIdentifier());
+
         pushEnv(EnvKind::Class);
+        inClass = true;
+
+        // Accept every field/method/constructor
+        for (const auto& f : stmt.getFields())
+            f->accept(*this);
+        for (auto& c : stmt.getConstructors()) {
+            c->accept(*this);
+            c->setType(Ty::Type(stmt.getIdentifier().getIdentifier()));
+            llvm::StringRef funcName = c->getIdentifier().getIdentifier();
+            currEnv->attachFunc(funcName, std::move(c));
+        } for (auto& m : stmt.getMethods()) {
+            m->accept(*this);
+            llvm::StringRef funcName = m->getIdentifier().getIdentifier();
+            currEnv->attachFunc(funcName, std::move(m));
+        }
+
+        /* For Debug Purposes*/
+        stmt.setFunctions(&currEnv->getFuncs());
 
         stmt.env = currEnv;
+        // Register class in base/class environment
+        if (baseEnv->defineClass(stmt.getIdentifier().getIdentifier(), currEnv)) {
+            llvm::StringRef iden = stmt.getIdentifier().getIdentifier();
+            Diag.report(stmt.getIdentifier().getLocation(), 
+                        diag::err_class_redeclaration, 
+                        iden);
+            // TODO: Find location of original class declaration
+            //Diag.report(baseEnv->getFunc(iden)->getLoc(),
+            //        diag::note_fun_declared_here);
+        }
         popEnv();
+        inClass = false;
     };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override { 
+        idens.clear();
         Ty::Type type = stmt.getType();
+        if (!Ty::equals(type, Ty::Type("void")) && type.is(Ty::TypeKind::Void)) {
+            type.setKind(Ty::TypeKind::UserDefined);
+            stmt.setType(type);
+        }
         stmt.getExpr()->accept(*this);
-        if (type.is(Ty::TypeKind::Void))
+        if (type.is(Ty::TypeKind::Void)) {
             for (auto& iden : idens)
                 Diag.report(iden.getLocation(),
                             diag::err_void_iden,
                             iden.getIdentifier());
+        }
         for (auto& iden : idens) {
             if (currEnv->defineVar(iden.getIdentifier(), type))
                 Diag.report(iden.getLocation(), 
                             diag::err_iden_redeclaration, 
                             iden.getIdentifier());
         }
-        idens.clear();
     };
     virtual void visit(ExprStmt &stmt) override { 
         stmt.getExpr()->accept(*this);
@@ -193,7 +246,8 @@ class TypeChecker : public ASTVisitor{
             Diag.report(op.getLocation(),
                         diag::err_bin_op_mismatch, 
                         op.getLexeme(), lType.get(), rType.get());
-        else if (resolve(lType, rType))
+        else if (Ty::equals(lType, rType)) {
+        } else if (resolve(lType, rType))
             rhs = std::make_unique<Cast>(std::move(rhs), lType);
         else
             lhs = std::make_unique<Cast>(std::move(lhs), rType);
@@ -201,6 +255,48 @@ class TypeChecker : public ASTVisitor{
         ResolvedLeft = std::move(lhs);
         ResolvedRight = std::move(rhs);
     };
+
+    bool checkExactSignature(const llvm::SmallVector<std::unique_ptr<Declare>, 256>& funcParams,
+            const llvm::SmallVector<std::unique_ptr<Expr>, 256>& exprParams,
+            bool skipFirstParam = false) {
+        size_t startIndex = skipFirstParam ? 1 : 0;
+        if (funcParams.size() - startIndex != exprParams.size()) {
+            return false;
+        }
+        for (size_t i = startIndex; i < funcParams.size(); ++i) {
+            if (!Ty::equals(funcParams[i]->getType(), exprParams[i - startIndex]->getType()))
+                return false;
+        }
+        return true;
+    }
+
+    bool checkResolvableSignature(const llvm::SmallVector<std::unique_ptr<Declare>, 256>& funcParams,
+            const llvm::SmallVector<std::unique_ptr<Expr>, 256>& exprParams,
+            bool skipFirstParam = false) {
+        size_t startIndex = skipFirstParam ? 1 : 0;
+        if (funcParams.size() - startIndex != exprParams.size()) {
+            return false;
+        }
+        for (size_t i = startIndex ; i < funcParams.size(); ++i) {
+            if (!Ty::resolvable(funcParams[i]->getType(), exprParams[i - startIndex]->getType()))
+                return false;
+        }
+        return true;
+    }
+
+    void resolveFunction(const llvm::SmallVector<std::unique_ptr<Declare>, 256>& funcParams,
+            llvm::SmallVector<std::unique_ptr<Expr>, 256>& exprParams,
+            bool skipFirstParam = false) {
+        size_t startIndex = skipFirstParam ? 1 : 0;
+        for (size_t i = startIndex; i < funcParams.size(); ++i) {
+            Ty::Type paramType = funcParams[i]->getType();
+            Ty::Type argType = exprParams[i - startIndex]->getType();
+
+            if (!Ty::equals(paramType, argType) && Ty::resolvable(paramType, argType))
+                exprParams[i - startIndex] = 
+                    std::make_unique<Cast>(std::move(exprParams[i - startIndex]), funcParams[i]->getType());
+        }
+    }
 
 public:
     TypeChecker(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
@@ -212,17 +308,19 @@ public:
 
     // Expression ASTs
     virtual void visit(BinaryOp &expr) override { 
-        resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
-        expr.setLeft(std::move(ResolvedLeft));
-        expr.setRight(std::move(ResolvedRight));
-        Value = expr.getLeft()->getType();
-        expr.setType(Value);
-
-        if (Value.is(Ty::TypeKind::Void)) {
-            Diag.report(expr.getOp().getLocation(),
-                        diag::err_void_in_expr);
-            return;
+        if (!expr.getOp().is(tok::TokenKind::PERIOD)) {
+            resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
+            expr.setLeft(std::move(ResolvedLeft));
+            expr.setRight(std::move(ResolvedRight));
+            Value = expr.getLeft()->getType();
+            expr.setType(Value);
+            if (Value.is(Ty::TypeKind::Void)) {
+                Diag.report(expr.getOp().getLocation(),
+                            diag::err_void_in_expr);
+                return;
+            }
         }
+
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUS:
                 if (!Value.isNumeric() && !Value.is(Ty::TypeKind::String))
@@ -234,7 +332,7 @@ public:
             case tok::TokenKind::STAR:
             case tok::TokenKind::SLASH:
             case tok::TokenKind::CARET:
-                if (Value.isNumeric())
+                if (!Value.isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
                                 expr.getOp().getLexeme(), Value.get(), Value.get());
@@ -252,6 +350,33 @@ public:
             case tok::TokenKind::GREATER:
             case tok::TokenKind::GEQ:
                 Value = Ty::Type("bool");
+                break;
+            case tok::TokenKind::PERIOD:
+                expr.getLeft()->accept(*this);
+                expr.getLeft()->setType(Value);
+                Ty::Type lType = Value;
+
+                Environment* prev = env;
+                Environment* classEnv = env->getClass(lType.get());
+
+                if (lType.is(Ty::TypeKind::Void) ||
+                        lType.isNumeric() ||
+                        lType.is(Ty::TypeKind::Bool) ||
+                        !classEnv) {
+                    Diag.report(expr.getOp().getLocation(),
+                            diag::err_dot_op_obj,
+                            lType.get());
+                    Value = Ty::Type("void");
+                    expr.setType(Value);
+                    break;
+                }
+
+                env = classEnv;
+
+                expr.getRight()->accept(*this);
+                expr.getRight()->setType(Value);
+                expr.setType(Value);
+                env = prev;
                 break;
         }
     };
@@ -308,7 +433,9 @@ public:
         expr.setType(Value);
     };
     virtual void visit(Variable &expr) override {
-        Value = *env->getVar(expr.getIdentifier());
+        if (env->getVar(expr.getIdentifier()))
+            Value = *env->getVar(expr.getIdentifier());
+        else Value = Ty::Type("void");
         expr.setType(Value);
     };
     virtual void visit(Logical &expr) override {
@@ -323,75 +450,93 @@ public:
         expr.setType(Value);
     };
     virtual void visit(Assign &expr) override {
-        Ty::Type varType = *env->getVar(expr.getIdentifier());
-        expr.getExpr()->accept(*this);
-        if (!Ty::equals(varType, Value) || Value.is(Ty::TypeKind::Void)) {
-            if (Value.isNumeric())
-                expr.setExpr(std::make_unique<Cast>(std::move(expr.getUnique()), varType));
+        expr.getLHS()->accept(*this);
+        Ty::Type LType = Value;
+        expr.getRHS()->accept(*this);
+        if (!Ty::equals(LType, Value) || Value.is(Ty::TypeKind::Void)) {
+            if (LType.isCastable() && Value.isCastable())
+                expr.setRHS(std::make_unique<Cast>(std::move(expr.getRHSUnique()), LType));
             else if (Value.is(Ty::TypeKind::Void))
-                Diag.report(expr.getIdentifier().getLocation(),
+                Diag.report(expr.getOp().getLocation(),
                             diag::err_void_assignment);
             else
-                Diag.report(expr.getIdentifier().getLocation(),
+                Diag.report(expr.getOp().getLocation(),
                             diag::err_var_mismatch,
-                            expr.getIdentifier().getIdentifier(),
-                            varType.get(), Value.get());
+                            Value.get(), LType.get());
         }
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUSEQUAL:
                 if (!Value.isNumeric() && !Value.is(Ty::TypeKind::String))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), varType.get(), Value.get());
+                                expr.getOp().getLexeme(), LType.get(), Value.get());
                 break;
             case tok::TokenKind::MINUSEQUAL:
                 if (!Value.isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), varType.get(), Value.get());
+                                expr.getOp().getLexeme(), LType.get(), Value.get());
                 break;
         }
-        Value = varType;
+        Value = LType;
         expr.setType(Value);
     };
     virtual void visit(FunExpr &expr) override { 
         FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
-        if (func != nullptr) {
-            if (func->getParams().size() != expr.getParams().size()) {
-                Diag.report(expr.getIdentifier().getLocation(),
-                            diag::err_fun_param_size, 
-                            expr.getIdentifier().getIdentifier(),
-                            func->getParams().size(),
-                            expr.getParams().size());
-                Diag.report(func->getLoc(), diag::note_fun_declared_here);
-            } else {
-                const auto& funcParams = func->getParams();
-                Environment* funcEnv = func->env;
-                auto& exprParams = expr.getParams();
-                for (int i = 0; i < funcParams.size(); i++) {
-                    Ty::Type reqType = funcParams[i]->getType();
-                    exprParams[i]->accept(*this);
-                    if (!Ty::equals(reqType, Value)) {
-                        if ((Value.isNumeric()) &&
-                            (reqType.isNumeric()))
-                            exprParams[i] = std::make_unique<Cast>(std::move(exprParams[i]), reqType);
-                        else {
-                            Diag.report(expr.getIdentifier().getLocation(),
-                                        diag::err_fun_param_type, 
-                                        i, expr.getIdentifier().getIdentifier(),
-                                        reqType.get(), Value.get());
-                            Diag.report(func->getLoc(), diag::note_fun_declared_here);
-                        }
-                    }
+        auto& exprParams = expr.getParams();
+        for (auto& param : exprParams)
+            param->accept(*this);
+        if (func) {
+            expr.setCalledFun(func);
+            const auto& funcParams = func->getParams();
+            bool skipFirst = func->isConstructor() || func->isMethod();
+            if (!checkExactSignature(funcParams, exprParams, skipFirst)) {
+                if (checkResolvableSignature(funcParams, exprParams, skipFirst))
+                    resolveFunction(funcParams, exprParams, skipFirst);
+                else {
+                    Diag.report(expr.getIdentifier().getLocation(),
+                                diag::err_fun_call, 
+                                expr.getIdentifier().getIdentifier());
+                    Diag.report(func->getLoc(), diag::note_fun_declared_here);
                 }
             }
             Value = func->getType();
-        } else
-            Value = Ty::Type("void");
+        } else {
+            // Check class constructors
+            Environment* classEnv = env->getClass(expr.getIdentifier().getIdentifier());
+            if (!classEnv) {
+                Value = Ty::Type("void");
+            } else {
+                FunStmt* func = classEnv->getFunc(expr.getIdentifier().getIdentifier());
+                if (func) {
+                    expr.setCalledFun(func);
+                    const auto& funcParams = func->getParams();
+                    bool skipFirst = func->isConstructor() || func->isMethod();
+                    if (!checkExactSignature(funcParams, exprParams, skipFirst)) {
+                        if (checkResolvableSignature(funcParams, exprParams, skipFirst))
+                            resolveFunction(funcParams, exprParams, skipFirst);
+                        else {
+                            Diag.report(expr.getIdentifier().getLocation(),
+                                        diag::err_fun_call, 
+                                        expr.getIdentifier().getIdentifier());
+                            Diag.report(func->getLoc(), diag::note_fun_declared_here);
+                        }
+                    }
+                    Value = func->getType();
+                } else Value = Ty::Type("void");
+            }
+        }
         expr.setType(Value);
     };
     virtual void visit(Cast &expr) override {
+        // Make sure both types are primitive or Strings
+        expr.getExpr()->accept(*this);
+        Ty::Type type = Value;
         Value = expr.getType();
+        if (!type.isCastable() || !Value.isCastable())
+                Diag.report(expr.getLoc(),
+                    diag::err_bad_cast_typing,
+                    type.get(), expr.getType().get());
     };
 
     // Statement ASTs
@@ -459,14 +604,24 @@ public:
         env = prev;
     };
     virtual void visit(FunStmt &stmt) override {
-        // FIXME: Might need to check that no parameters are void
         Environment* prev = env;
         env = stmt.env;
+        for (const auto& p : stmt.getParams())
+            p->accept(*this);
         FunType = stmt.getType();
         stmt.getBody()->accept(*this);
         env = prev;
     };
-    virtual void visit(ClassStmt &stmt) override { };
+    virtual void visit(ClassStmt &stmt) override {
+        // Check all statements in class
+        Environment* prev = env;
+        env = stmt.env;
+        for (const auto& f : stmt.getFields())
+            f->accept(*this);
+        for (auto& entry : env->getFuncs())
+            entry.getValue()->accept(*this);
+        env = prev;
+    };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override {
         stmt.getExpr()->accept(*this);
@@ -482,6 +637,7 @@ class ScopeResolution : public ASTVisitor{
     //      undeclared functions,
     brainwave::DiagnosticsEngine &Diag;
     Environment* env;
+    bool isLValue;
 
 public:
     ScopeResolution(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
@@ -493,8 +649,28 @@ public:
 
     // Expression ASTs
     virtual void visit(BinaryOp &expr) override { 
-        expr.getLeft()->accept(*this);
-        expr.getRight()->accept(*this);
+        if (!expr.getOp().is(tok::TokenKind::PERIOD)) {
+            expr.getLeft()->accept(*this);
+            expr.getRight()->accept(*this);
+        } else {
+            llvm::StringRef member;
+            if (Variable* var = llvm::dyn_cast<Variable>(expr.getRight())) {
+                isLValue = true;
+                member = var->getIdentifier().getIdentifier();
+            } else if (FunExpr* fun = llvm::dyn_cast<FunExpr>(expr.getRight()))
+                member = fun->getIdentifier().getIdentifier();
+
+            // Set environment to the classes environment
+            Ty::Type type = expr.getLeft()->getType();
+            Environment* classEnv = env->getClass(type.get());
+
+            if (!classEnv || !classEnv->hasMember(member)) {
+                Ty::Type type = expr.getLeft()->getType();
+                Diag.report(expr.getOp().getLocation(),
+                        diag::err_undeclared_member,
+                        type.get(), member);
+            } 
+        }
     };
     virtual void visit(UnaryOp &expr) override {
         expr.getExpr()->accept(*this);
@@ -504,28 +680,44 @@ public:
     };
     virtual void visit(Literal &expr) override { };
     virtual void visit(Variable &expr) override {
-        if (!env->getVar(expr.getIdentifier())) 
-            Diag.report(expr.getIdentifier().getLocation(),
-                        diag::err_iden_undeclared, 
-                        expr.getData());
+        isLValue = true;
+        if (env->isLocal(expr.getIdentifier().getIdentifier()))
+            return;
+
+        if (env->isGlobal(expr.getIdentifier().getIdentifier()))
+            return;
+
+        if (env->hasMember(expr.getIdentifier().getIdentifier())) {
+            if (env->getKind() != EnvKind::Class)
+                Diag.report(expr.getIdentifier().getLocation(),
+                            diag::err_illegal_field_access, 
+                            expr.getData());
+            return;
+        }
+
+        Diag.report(expr.getIdentifier().getLocation(),
+                    diag::err_iden_undeclared, 
+                    expr.getData());
     };
     virtual void visit(Logical &expr) override {
         expr.getLeft()->accept(*this);
         expr.getRight()->accept(*this);
     };
     virtual void visit(Assign &expr) override {
-        if (!env->getVar(expr.getIdentifier()))
-            Diag.report(expr.getIdentifier().getLocation(),
-                        diag::err_iden_undeclared, 
-                        expr.getIdentifier().getIdentifier());
-        expr.getExpr()->accept(*this);
+        isLValue = false;
+        expr.getLHS()->accept(*this);
+        if (!isLValue)
+            Diag.report(expr.getOp().getLocation(),
+                    diag::err_no_lvalue_assignment);
+        expr.getRHS()->accept(*this);
     };
     virtual void visit(FunExpr &expr) override { 
         FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
-        if (func == nullptr)
+        if (!func && !env->getClass(expr.getIdentifier().getIdentifier())) {
             Diag.report(expr.getIdentifier().getLocation(),
                         diag::err_func_undeclared, 
                         expr.getIdentifier().getIdentifier());
+        }
         for (const auto& p: expr.getParams())
             p->accept(*this);
     };
@@ -595,7 +787,22 @@ public:
         stmt.getBody()->accept(*this);
         env = prev;
     };
-    virtual void visit(ClassStmt &stmt) override { };
+    virtual void visit(ClassStmt &stmt) override {
+        Environment* prev = env;
+        env = stmt.env;
+        for (const auto& f : stmt.getFields())
+            f->accept(*this);
+        for (const auto& entry : env->getFuncs()) {
+            if (entry.getValue()->isConstructor() &&
+                    !(stmt.getIdentifier().getIdentifier() ==
+                     entry.getValue()->getIdentifier().getIdentifier()))
+                Diag.report(entry.getValue()->getLoc(),
+                        diag::err_bad_constructor,
+                        stmt.getIdentifier().getIdentifier());
+            entry.getValue()->accept(*this);
+        }
+        env = prev;
+    };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override {
         stmt.getExpr()->accept(*this);
@@ -786,11 +993,19 @@ public:
         env = stmt.env;
         stmt.getBody()->accept(*this);
         env = prev;
-        if (!mustReturn && !stmt.getType().is(Ty::TypeKind::Void))
+        if (!mustReturn && !(stmt.getType().is(Ty::TypeKind::Void) || stmt.isConstructor()))
             Diag.report(stmt.getLoc(), diag::err_missing_return);
         mustReturn = false;
     };
-    virtual void visit(ClassStmt &stmt) override { };
+    virtual void visit(ClassStmt &stmt) override {
+        Environment* prev = env;
+        env = stmt.env;
+        for (const auto& f : stmt.getFields())
+            f->accept(*this);
+        for (const auto& entry : env->getFuncs())
+            entry.getValue()->accept(*this);
+        env = prev;
+    };
     virtual void visit(Import &stmt) override {
         if (escape && !warned) {
             Diag.report(stmt.getLoc(), diag::warn_unreachable_code);
@@ -813,9 +1028,13 @@ public:
 
 class Desugar : public ASTVisitor{
     // Changes:
-    //          ++ into += 1,
-    //          -- into -= 1,
+    //          ++ into iden = iden + 1,
+    //          -- into iden = iden - 1,
+    //          += into iden = iden + expr,
+    //          -= into iden = iden - expr,
     //          until loops into while loops
+    //          obj.method(params) into method(obj, params)
+    //          Constructor(params) into Constructor(obj, params)
     std::unique_ptr<Expr> ReplaceExpr = nullptr;
     std::unique_ptr<Stmt> ReplaceStmt = nullptr;
 
@@ -835,15 +1054,24 @@ public:
 
     // Expression ASTs
     virtual void visit(BinaryOp &expr) override {
-        expr.getLeft()->accept(*this);
-        if (ReplaceExpr) {
-            expr.setLeft(std::move(ReplaceExpr));
-            ReplaceExpr = nullptr;
-        }
-        expr.getRight()->accept(*this);
-        if (ReplaceExpr) {
-            expr.setRight(std::move(ReplaceExpr));
-            ReplaceExpr = nullptr;
+        if (!expr.getOp().is(tok::TokenKind::PERIOD)) {
+            expr.getLeft()->accept(*this);
+            if (ReplaceExpr) {
+                expr.setLeft(std::move(ReplaceExpr));
+                ReplaceExpr = nullptr;
+            }
+            expr.getRight()->accept(*this);
+            if (ReplaceExpr) {
+                expr.setRight(std::move(ReplaceExpr));
+                ReplaceExpr = nullptr;
+            }
+        } else {
+        // Desugar obj.method(a, b) to method(obj, a, b)
+            if (FunExpr* fun = llvm::dyn_cast<FunExpr>(expr.getRight())) {
+                auto objExpr = expr.getLeftUnique();
+                fun->insertParamFront(std::move(objExpr));
+                ReplaceExpr = std::move(expr.getRightUnique());
+            }
         }
     };
     virtual void visit(UnaryOp &expr) override {
@@ -864,9 +1092,13 @@ public:
                 auto One = std::make_unique<Literal>(oneTok);
                 One->setType(type);
 
+                // Create Expression for LValue Variable
+                auto LVar = std::make_unique<Variable>(identifier);
+                LVar->setType(type);
+
                 // Create Expression for variable
-                auto varExpr = std::make_unique<Variable>(identifier);
-                varExpr->setType(type);
+                auto RVar = std::make_unique<Variable>(identifier);
+                RVar->setType(type);
 
                 // Create Expression for var +/- 1
                 tok::TokenKind opKind = (expr.getOp().getKind() == tok::TokenKind::PLUSPLUS)
@@ -876,13 +1108,13 @@ public:
                             expr.getOp().getLexeme().size(),
                             opKind);
                 auto binExpr = std::make_unique<BinaryOp>(
-                        std::move(varExpr), opTok, std::move(One));
+                        std::move(RVar), opTok, std::move(One));
                 binExpr->setType(type);
 
                 // Create = Expression
                 static const char* eq = "=";
                 Token eqTok(eq, 1, tok::TokenKind::EQUAL);
-                ReplaceExpr = std::make_unique<Assign>(identifier, eqTok, std::move(binExpr));
+                ReplaceExpr = std::make_unique<Assign>(std::move(LVar), eqTok, std::move(binExpr));
                 ReplaceExpr->setType(type);
             }
         }
@@ -910,20 +1142,17 @@ public:
         }
     };
     virtual void visit(Assign &expr) override {
-        expr.getExpr()->accept(*this);
+        expr.getRHS()->accept(*this);
         if (ReplaceExpr) {
-            expr.setExpr(std::move(ReplaceExpr));
+            expr.setRHS(std::move(ReplaceExpr));
             ReplaceExpr = nullptr;
         }
         if (!expr.getOp().is(tok::TokenKind::EQUAL)) {
             Ty::Type type = expr.getType();
-            Token identifier = expr.getIdentifier();
+            auto LValue = expr.getLHSUnique();
+            auto LValue_cp = LValue->clone();
 
-            // Create Expression for variable
-            auto varExpr = std::make_unique<Variable>(identifier);
-            varExpr->setType(type);
-
-            // Create Expression for var +/- expr
+            // Create Expression for LValue +/- expr
             tok::TokenKind opKind = (expr.getOp().getKind() == tok::TokenKind::PLUSEQUAL)
                 ? tok::TokenKind::PLUS
                 : tok::TokenKind::MINUS;
@@ -931,17 +1160,27 @@ public:
                         expr.getOp().getLexeme().size(),
                         opKind);
             auto binExpr = std::make_unique<BinaryOp>(
-                    std::move(varExpr), opTok, std::move(expr.getUnique()));
+                    std::move(LValue_cp), opTok, std::move(expr.getRHSUnique()));
             binExpr->setType(type);
 
             // Create = Expression
             static const char* eq = "=";
             Token eqTok(eq, 1, tok::TokenKind::EQUAL);
-            ReplaceExpr = std::make_unique<Assign>(identifier, eqTok, std::move(binExpr));
+            ReplaceExpr = std::make_unique<Assign>(std::move(LValue), eqTok, std::move(binExpr));
             ReplaceExpr->setType(type);
         }
     };
     virtual void visit(FunExpr &expr) override {
+        FunStmt* func = expr.getCalledFun();
+        if (func && func->isConstructor()) {
+            // Insert this Parameter
+            Ty::Type classType = func->getType();
+            static const char* nullStr = "null";
+            Token nullToken = Token(nullStr, 4, tok::TokenKind::kw_null);
+            auto nullLiteral = std::make_unique<Literal>(nullToken);
+            nullLiteral->setType(classType);
+            expr.insertParamFront(std::move(nullLiteral));
+        }
         for (auto& param : expr.getParams()) {
             param->accept(*this);
             if (ReplaceExpr) {
@@ -1071,8 +1310,32 @@ public:
             stmt.setBody(std::move(ReplaceStmt));
             ReplaceStmt = nullptr;
         }
+        // Insert implicit return for constructors
+        if (stmt.isConstructor()) {
+            static const char* thisStr = "this";
+            Token thisTok = Token(thisStr, 4, tok::TokenKind::kw_this);
+            std::unique_ptr<Expr> thisVar = std::make_unique<Variable>(thisTok);
+            thisVar->setType(stmt.getType());
+            std::unique_ptr<Stmt> retStmt = std::make_unique<Return>(std::move(thisVar), stmt.getLoc());
+            if (Block* body = llvm::dyn_cast<Block>(stmt.getBody())) {
+                body->addStmt(std::move(retStmt));
+            } else {
+                llvm::SmallVector<std::unique_ptr<Stmt>, 256> stmts;
+                stmts.push_back(std::move(stmt.getBodyUnique()));
+                stmts.push_back(std::move(retStmt));
+                std::unique_ptr<Block> block = std::make_unique<Block>(stmts);
+                block->env = stmt.env;
+                stmt.setBody(std::move(block));
+            }
+        }
+
     };
-    virtual void visit(ClassStmt &stmt) override { };
+    virtual void visit(ClassStmt &stmt) override {
+        for (const auto& f : stmt.getFields())
+            f->accept(*this);
+        for (const auto& entry : stmt.env->getFuncs())
+            entry.getValue()->accept(*this);
+    };
     virtual void visit(Import &stmt) override {
     };
     virtual void visit(Declare &stmt) override {
@@ -1105,8 +1368,8 @@ std::unique_ptr<AST> Sema::next() {
     Desugar Des;
     // feed it into all passes
     EnvC.run(ast.get(), getBaseEnvironment());
-    ScoRe.run(ast.get(), getBaseEnvironment());
     TypCh.run(ast.get(), getBaseEnvironment());
+    ScoRe.run(ast.get(), getBaseEnvironment());
     ConFl.run(ast.get(), getBaseEnvironment());
     ast = Des.run(std::move(ast));
     return ast;

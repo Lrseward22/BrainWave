@@ -1,5 +1,6 @@
 #include <brainwave/Utils/Type.h>
 #include <cstddef>
+#include <iostream>
 
 using namespace brainwave;
 
@@ -18,7 +19,7 @@ void Ty::initializeBuiltInTypes() {
 }
 
 Ty::TypeKind Ty::getTypeKind(llvm::StringRef name) {
-    return ValidTypes[name];
+    return ValidTypes.lookup(name);
 }
 void Ty::declareType(llvm::StringRef name, TypeKind type) {
     ValidTypes[name] = type;
@@ -34,6 +35,15 @@ bool Ty::isDefined(llvm::StringRef name) {
         return true;
     return false;
 }
+bool Ty::isCastable(llvm::StringRef name) {
+    if (ValidTypes.count(name)) {
+        TypeKind K = ValidTypes[name];
+        return (K == TypeKind::String ||
+                K == TypeKind::Numeric ||
+                K == TypeKind::Bool);
+    }
+    return false;
+}
 
 bool Ty::Type::is(TypeKind K) const {
     return Kind == K;
@@ -43,6 +53,9 @@ bool Ty::Type::isNumeric() const {
 }
 bool Ty::Type::isUserDefined() const {
     return is(TypeKind::UserDefined);
+}
+bool Ty::Type::isCastable() const {
+    return (is(TypeKind::Bool) || isNumeric() || is(TypeKind::String));
 }
 llvm::StringRef Ty::Type::get() const {
     return name;

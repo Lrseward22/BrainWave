@@ -80,8 +80,18 @@ forStatement
     ;
 
 classStatement
-    : kw_CLASS IDENTIFIER (kw_EXTENDS IDENTIFIER)? block
+    : kw_CLASS IDENTIFIER (kw_EXTENDS IDENTIFIER)? L_CURLY classMember* R_CURLY
+    | kw_CLASS IDENTIFIER L_CURLY classMember* R_CURLY
     ;
+
+classMember
+    : declareStatement
+    | funcDefStatement
+    | constructorDeclaration
+    ;
+
+constructorDeclaration
+    : IDENTIFIER L_PAREN arglist? R_PAREN block
 
 importStatement
     : kw_IMPORT STRING_LITERAL
@@ -93,11 +103,11 @@ declareStatement
 
 exprStatement
     : assignExpr SEMI
-    | logicalExpr SEMI
     ;
 
 assignExpr
-    : IDENTIFIER ( EQUAL | PLUSEQUAL | MINUSEQUAL ) expr
+    : logicalExpr ( EQUAL | PLUSEQUAL | MINUSEQUAL ) assignExpr
+    | logicalExpr
     ;
 
 logicalExpr
@@ -130,9 +140,22 @@ factorExpr
     ;
 
 unary
-    : ( BANG | MINUS | MINUSMINUS | PLUSPLUS ) grouping
-    | grouping ( MINUSMINUS | PLUSPLUS )
-    | grouping
+    : ( BANG | MINUS | MINUSMINUS | PLUSPLUS ) cast
+    | cast ( PLUSPLUS | MINUSMINUS )
+    | cast
+    ;
+
+cast
+    : TYPE L_PAREN logicalExpr R_PAREN
+    | memberExpr
+    ;
+
+memberExpr
+    : grouping ( memberOp )*
+    ;
+
+memberOp
+    : PERIOD IDENTIFIER ( L_PAREN argList? R_PAREN )?
     ;
 
 grouping
@@ -149,8 +172,7 @@ baseExpr
     ;
 
 funExpr
-    : TYPE L_PAREN argList R_PAREN          // This can be used for type conversions. Maybe Array Initialization?
-    | IDENTIFIER L_PAREN argList? R_PAREN
+    : IDENTIFIER L_PAREN argList? R_PAREN
     ;
 
 TYPE: (kw_INT | kw_BOOL | kw_FLOAT | kw_DOUBLE | kw_STRING | kw_VOID | INDENTIFIER) ;

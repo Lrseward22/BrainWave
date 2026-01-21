@@ -52,7 +52,6 @@ class Parser {
         return Lex.peek();
     }
 
-    //TODO:: For each nonterminal add a parse method
     std::unique_ptr<AST> parseBrainWave();
 
     // EXPRs
@@ -64,6 +63,8 @@ class Parser {
     std::unique_ptr<Expr> parseTermExpr();
     std::unique_ptr<Expr> parseFactorExpr();
     std::unique_ptr<Expr> parseUnary();
+    std::unique_ptr<Expr> parseCast();
+    std::unique_ptr<Expr> parseMemberExpr();
     std::unique_ptr<Expr> parseGrouping();
     std::unique_ptr<Expr> parseBaseExpr();
     std::unique_ptr<Expr> parseFunExpr(Token identifier);
@@ -85,6 +86,7 @@ class Parser {
     std::unique_ptr<Stmt> parseFor();
     std::unique_ptr<Stmt> parseFunStmt();
     std::unique_ptr<Stmt> parseClass();
+    std::unique_ptr<FunStmt> parseConstructor();
     std::unique_ptr<Stmt> parseImport();
 
     void unmatchedCharError(Token tok) {

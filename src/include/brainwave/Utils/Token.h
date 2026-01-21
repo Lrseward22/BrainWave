@@ -27,7 +27,7 @@ public:
     }
 
     llvm::StringRef getIdentifier() {
-        assert(is(tok::IDENTIFIER) &&
+        assert(isOneOf(tok::IDENTIFIER, tok::kw_this) &&
                 "Cannot get identifier of non-identifier");
         return llvm::StringRef(Ptr, Length);
     }
@@ -38,7 +38,8 @@ public:
                        tok::STRING_LITERAL,
                        tok::FLOAT_LITERAL,
                        tok::kw_true,
-                       tok::kw_false) &&
+                       tok::kw_false,
+                       tok::kw_null) &&
             "Cannot get literal data of non-literal");
         return llvm::StringRef(Ptr, Length);
     }

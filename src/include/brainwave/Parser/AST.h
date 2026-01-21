@@ -77,7 +77,7 @@ class ASTVisitor {
 class AST {
 public:
     enum Kind {
-        FunKind, ClassKind, StmtKind,
+        FunKind, ClassKind, BlockKind, StmtKind,
         AssignKind, VariableKind, ExprKind
     };
 
@@ -95,6 +95,7 @@ public:
 class Expr : public AST {
 public:
     Expr(Kind K) : AST(K) {}
+    virtual std::unique_ptr<Expr> clone() const = 0;
     virtual void setType(Ty::Type t) {}
     virtual Ty::Type getType() = 0;
 };
@@ -116,6 +117,12 @@ class BinaryOp : public Expr {
         void setLeft(std::unique_ptr<Expr> l) { left = std::move(l); }
         void setRight(std::unique_ptr<Expr> r) { right = std::move(r); }
         Token getOp() { return op; }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<BinaryOp>(
+                    left->clone(), op, right->clone());
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -142,6 +149,12 @@ class UnaryOp : public Expr {
         Token getOp() { return op; }
         Expr* getExpr() { return expr.get(); }
         void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<UnaryOp>(
+                    op, expr->clone());
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -164,6 +177,12 @@ class Grouping : public Expr {
         Grouping(std::unique_ptr<Expr> expr) : Expr(ExprKind), expr(std::move(expr)) {}
         Expr* getExpr() { return expr.get(); }
         void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<Grouping>(
+                    expr->clone());
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -186,6 +205,11 @@ class Literal : public Expr {
         Literal(const Token& tok) : Expr(ExprKind), literal(tok) {}
         Token getTok() { return literal; }
         llvm::StringRef getData() { return literal.getLiteralData(); }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<Literal>(literal);
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -207,6 +231,12 @@ class Variable : public Expr {
         Variable(const Token& tok) : Expr(VariableKind), identifier(tok) {}
         Token getIdentifier() { return identifier; }
         llvm::StringRef getData() { return identifier.getIdentifier(); }
+        bool isThis() { return identifier.is(tok::TokenKind::kw_this); }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<Variable>(identifier);
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -236,6 +266,12 @@ class Logical : public Expr {
         void setLeft(std::unique_ptr<Expr> l) { left = std::move(l); }
         void setRight(std::unique_ptr<Expr> r) { right = std::move(r); }
         Token getOp() { return op; }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<Logical>(
+                    left->clone(), op, right->clone());
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -252,19 +288,27 @@ class Logical : public Expr {
 };
 
 class Assign : public Expr {
-    Token identifier;
+    std::unique_ptr<Expr> lhs;
     Token op;
-    std::unique_ptr<Expr> expr;
+    std::unique_ptr<Expr> rhs;
     Ty::Type type;
 
     public:
-        Assign(Token identifier, const Token& op, std::unique_ptr<Expr> expr)
-            : Expr(AssignKind), identifier(identifier), op(op), expr(std::move(expr)) {}
-        Token getIdentifier() { return identifier; }
+        Assign(std::unique_ptr<Expr> lhs, const Token& op, std::unique_ptr<Expr> rhs)
+            : Expr(AssignKind), lhs(std::move(lhs)), op(op), rhs(std::move(rhs)) {}
+        Expr* getLHS() { return lhs.get(); }
+        std::unique_ptr<Expr> getLHSUnique() { return std::move(lhs); }
         Token getOp() { return op; }
-        Expr* getExpr() { return expr.get(); }
-        std::unique_ptr<Expr> getUnique() { return std::move(expr); }
-        void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
+        Expr* getRHS() { return rhs.get(); }
+        std::unique_ptr<Expr> getRHSUnique() { return std::move(rhs); }
+        void setLHS(std::unique_ptr<Expr> e) { lhs = std::move(e); }
+        void setRHS(std::unique_ptr<Expr> e) { rhs = std::move(e); }
+        virtual std::unique_ptr<Expr> clone() const override {
+            auto copy = std::make_unique<Assign>(
+                    lhs->clone(), op, rhs->clone());
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -274,9 +318,10 @@ class Assign : public Expr {
         void setType(Ty::Type t) { type = t; }
         virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Assign: (" << identifier.getIdentifier().str() << ")" << std::endl;
+            std::cout << std::string(indent, ' ') << "Assign: " << std::endl;
+            lhs->print(indent+2);
             std::cout << std::string(indent + 2, ' ') << "Op: (" << op.getLexeme().str() << ")" << std::endl;
-            if (expr) expr->print(indent + 2);
+            if (rhs) rhs->print(indent + 2);
         }
 };
 
@@ -284,12 +329,24 @@ class FunExpr : public Expr {
     Token identifier;
     llvm::SmallVector<std::unique_ptr<Expr>, 256> params;
     Ty::Type type;
+    FunStmt* calledFun;
 
     public:
         FunExpr(const Token& tok, llvm::SmallVector<std::unique_ptr<Expr>, 256> &paramslst)
             : Expr(ExprKind), identifier(tok), params(std::move(paramslst)) {}
         Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Expr>, 256> &getParams() { return params; }
+        void insertParamFront(std::unique_ptr<Expr> p) { params.insert(params.begin(), std::move(p)); }
+        void setCalledFun(FunStmt* f) { calledFun = f; }
+        FunStmt* getCalledFun() { return calledFun; }
+        virtual std::unique_ptr<Expr> clone() const override {
+            llvm::SmallVector<std::unique_ptr<Expr>, 256> copyParams;
+            for (const auto& p : params)
+                copyParams.push_back(std::move(p->clone()));
+            auto copy = std::make_unique<FunExpr>(identifier, copyParams);
+            copy->setType(type);
+            return copy;
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -299,7 +356,7 @@ class FunExpr : public Expr {
         void setType(Ty::Type t) { type = t; }
         virtual Ty::Type getType() { return type; }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Identifier: (" << identifier.getIdentifier().str() << ")" << std::endl;
+            std::cout << std::string(indent, ' ') << "Function Identifier: (" << identifier.getIdentifier().str() << ")" << std::endl;
             for (auto& param : params)
                 param->print(indent+2);
         }
@@ -308,12 +365,20 @@ class FunExpr : public Expr {
 class Cast : public Expr {
     std::unique_ptr<Expr> Value;
     Ty::Type type;
+    llvm::SMLoc loc;
 
     public:
         Cast(std::unique_ptr<Expr> expr, Ty::Type type)
             : Expr(ExprKind), Value(std::move(expr)), type(type) {}
+        Cast(std::unique_ptr<Expr> expr, Ty::Type type, llvm::SMLoc loc)
+            : Expr(ExprKind), Value(std::move(expr)), type(type), loc(loc) {}
         Expr* getExpr() { return Value.get(); }
         void setExpr(std::unique_ptr<Expr> e) { Value = std::move(e); }
+        llvm::SMLoc getLoc() { return loc; }
+        virtual std::unique_ptr<Expr> clone() const override {
+            return std::make_unique<Cast>(
+                    Value->clone(), type, loc);
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -341,13 +406,16 @@ class Block : public Stmt {
 
     public:
         Block(llvm::SmallVector<std::unique_ptr<Stmt>, 256> &stmtlst) 
-            : Stmt(StmtKind), stmts(std::move(stmtlst)) {}
+            : Stmt(BlockKind), stmts(std::move(stmtlst)) {}
         llvm::SmallVector<std::unique_ptr<Stmt>, 256> &getStmts() { return stmts; }
+        void addStmt(std::unique_ptr<Stmt> s) {
+            stmts.push_back(std::move(s));
+        }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
         static bool classof(const AST* A) {
-            return A->getKind() == StmtKind;
+            return A->getKind() == BlockKind;
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Block: " << std::endl;
@@ -367,7 +435,11 @@ class Declare : public Stmt {
         Declare(Token& type, std::unique_ptr<Expr> expr)
             : Stmt(StmtKind), type(type.getLexeme()),
             expr(std::move(expr)), loc(type.getLocation()) {}
+        Declare(Ty::Type type, std::unique_ptr<Expr> expr, llvm::SMLoc loc)
+            : Stmt(StmtKind), type(type),
+            expr(std::move(expr)), loc(loc) {}
         Ty::Type getType() { return type; }
+        void setType(Ty::Type T) { type = T; }
         Expr* getExpr() { return expr.get(); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
@@ -617,6 +689,12 @@ class For : public Stmt {
         }
 };
 
+enum class FunctionKind {
+    FUNCTION,
+    CONSTRUCTOR,
+    METHOD
+};
+
 class FunStmt : public Stmt {
     public:
     Environment* env;
@@ -626,18 +704,32 @@ class FunStmt : public Stmt {
     Ty::Type type;
     std::unique_ptr<Stmt> body;
     llvm::SMLoc loc;
+    FunctionKind Kind;
 
     public:
         FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
                 Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc)
             : Stmt(FunKind), identifier(tok), params(std::move(params)),
-              type(Ty::Type(type.getLexeme())), body(std::move(body)), loc(loc) {}
+              type(Ty::Type(type.getLexeme())), body(std::move(body)),
+              loc(loc), Kind(FunctionKind::FUNCTION) {}
+        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
+                std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool constructor)
+            : Stmt(FunKind), identifier(tok), params(std::move(params)),
+              type(Ty::Type("void")), body(std::move(body)),
+              loc(loc), Kind(constructor ? FunctionKind::CONSTRUCTOR : FunctionKind::METHOD) {}
         Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Declare>, 256> &getParams() { return params; }
-        Ty::Type getType() { return type; }
+        void insertParamFront(std::unique_ptr<Declare> p) { params.insert(params.begin(), std::move(p)); }
+        const Ty::Type& getType() const { return type; }
+        void setType(Ty::Type T) { type = T; }
         Stmt* getBody() { return body.get(); }
+        std::unique_ptr<Stmt> getBodyUnique() { return std::move(body); }
         void setBody(std::unique_ptr<Stmt> s) { body = std::move(s); }
         llvm::SMLoc getLoc() { return loc; }
+        void setKind(FunctionKind K) { Kind = K; }
+        bool isConstructor() { return Kind == FunctionKind::CONSTRUCTOR; }
+        bool isMethod() { return Kind == FunctionKind::METHOD; }
+        bool isNormal() { return Kind == FunctionKind::FUNCTION; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -646,25 +738,38 @@ class FunStmt : public Stmt {
         }
         virtual void print(int indent = 0) override {
             std::cout << std::string(indent, ' ') << "Fun stmt: " << type.get().str() << " " << identifier.getIdentifier().str() << std::endl;
-            std::cout << std::string(indent+2, ' ') << "Parameters: ";
+            std::cout << std::string(indent+2, ' ') << "Parameters: \n";
             for (auto& param : params)
-                param->print(indent+2);
+                param->print(indent+4);
             std::cout << '\n';
             if (body) body->print(indent+2);
         }
 };
 
-//TODO
 class ClassStmt : public Stmt {
-    Token string;
     public:
     Environment* env;
     private:
+    Token identifier;
+    llvm::SmallVector<std::unique_ptr<Declare>, 256> fields;
+    llvm::SmallVector<std::unique_ptr<FunStmt>, 256> methods;
+    llvm::SmallVector<std::unique_ptr<FunStmt>, 256> constructors;
+    const llvm::StringMap<std::unique_ptr<FunStmt>>* functions; /* For Debug purposes */
+    llvm::SMLoc loc;
 
     public:
-        ClassStmt(const Token& string)
-            : Stmt(ClassKind), string(string) {}
-        Token getString() { return string; }
+        ClassStmt(const Token& identifier, llvm::SmallVector<std::unique_ptr<Declare>, 256>& fields,
+                  llvm::SmallVector<std::unique_ptr<FunStmt>, 256>& methods,
+                  llvm::SmallVector<std::unique_ptr<FunStmt>, 256>& constructors,
+                  llvm::SMLoc loc)
+            : Stmt(ClassKind), identifier(identifier), fields(std::move(fields)),
+              methods(std::move(methods)), constructors(std::move(constructors)), loc(loc) {}
+        Token getIdentifier() { return identifier; }
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> &getFields() { return fields; }
+        llvm::SmallVector<std::unique_ptr<FunStmt>, 256> &getMethods() { return methods; }
+        llvm::SmallVector<std::unique_ptr<FunStmt>, 256> &getConstructors() { return constructors; }
+        void setFunctions(const llvm::StringMap<std::unique_ptr<FunStmt>>* f) { functions = f; }
+        llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
@@ -672,7 +777,13 @@ class ClassStmt : public Stmt {
             return A->getKind() == ClassKind;
         }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Import: " << string.getLexeme().str() << std::endl;
+            std::cout << std::string(indent, ' ') << "Class: " << identifier.getLexeme().str() << std::endl;
+            std::cout << std::string(indent+2, ' ') << "Fields: \n";
+            for (auto& f : fields)
+                f->print(indent+4);
+            std::cout << std::string(indent+2, ' ') << "Methods: \n";
+            for (auto& entry : *functions)
+                entry.getValue()->print(indent+4);
         }
 };
 

@@ -15,24 +15,21 @@ std::unique_ptr<AST> Parser::parse() {
 // EXPRESSIONS
 
 std::unique_ptr<Expr> Parser::parseExpression() {
-    tok::TokenKind lookAhead = peek();
-    std::unique_ptr<Expr> expr;
-    if (lookAhead == tok::TokenKind::EQUAL ||
-        lookAhead == tok::TokenKind::PLUSEQUAL ||
-        lookAhead == tok::TokenKind::MINUSEQUAL)
-        expr = parseAssign();
-    else
-        expr = parseLogical();
+    std::unique_ptr<Expr> expr = parseAssign();
     return expr;
 }
 
 std::unique_ptr<Expr> Parser::parseAssign() {
-    Token identifier = Tok;
-    advance();
-    Token op = Tok;
-    advance();
-    std::unique_ptr<Expr> expr = parseExpression();
-    return std::make_unique<Assign>(identifier, op, std::move(expr));
+    std::unique_ptr<Expr> lhs = parseLogical();
+    if (match(tok::TokenKind::EQUAL) ||
+        match(tok::TokenKind::PLUSEQUAL) ||
+        match(tok::TokenKind::MINUSEQUAL)) {
+        Token op = Tok;
+        advance();
+        std::unique_ptr<Expr> rhs = parseAssign();
+        return std::make_unique<Assign>(std::move(lhs), op, std::move(rhs));
+    }
+    return lhs;
 }
 
 std::unique_ptr<Expr> Parser::parseLogical() {
@@ -114,16 +111,41 @@ std::unique_ptr<Expr> Parser::parseUnary() {
             tok::TokenKind::PLUSPLUS)) {
         Token op = Tok;
         advance();
-        std::unique_ptr<Expr> expr = parseGrouping();
+        std::unique_ptr<Expr> expr = parseCast();
         return std::make_unique<UnaryOp>(op, std::move(expr));
     } else {
-        std::unique_ptr<Expr> expr = parseGrouping();
+        std::unique_ptr<Expr> expr = parseCast();
         if (Tok.isOneOf(tok::TokenKind::PLUSPLUS, tok::TokenKind::MINUSMINUS)) {
             expr = std::make_unique<UnaryOp>(Tok, std::move(expr));
             advance();
         }
         return expr;
     }
+}
+
+std::unique_ptr<Expr> Parser::parseCast() {
+    if (Ty::isDefined(Tok.getLexeme()) && Ty::isCastable(Tok.getLexeme())) {
+        Ty::Type type(Tok.getLexeme());
+        advance();
+        consume(tok::TokenKind::L_PAREN);
+        llvm::SMLoc loc = Tok.getLocation();
+        std::unique_ptr<Expr> expr = std::make_unique<Cast>(parseLogical(), type, loc);
+        consume(tok::TokenKind::R_PAREN);
+        return expr;
+    } else
+        return parseMemberExpr();
+}
+
+std::unique_ptr<Expr> Parser::parseMemberExpr() {
+    std::unique_ptr<Expr> left = parseGrouping();
+    while (match(tok::TokenKind::PERIOD)) {
+        Token op = Tok;
+        advance();
+        expect(tok::TokenKind::IDENTIFIER);
+        std::unique_ptr<Expr> right = parseBaseExpr();
+        left = std::make_unique<BinaryOp>(std::move(left), op, std::move(right));
+    }
+    return left;
 }
 
 std::unique_ptr<Expr> Parser::parseGrouping() {
@@ -149,6 +171,8 @@ std::unique_ptr<Expr> Parser::parseBaseExpr() {
     if (tok.getKind() == tok::TokenKind::IDENTIFIER) {
         if (Tok.getKind() == tok::TokenKind::L_PAREN)
             return parseFunExpr(tok);
+        return std::make_unique<Variable>(tok);
+    } else if (tok.getKind() == tok::TokenKind::kw_this) {
         return std::make_unique<Variable>(tok);
     } else if (tok::isLiteral(tok.getKind()) 
             || tok.isOneOf(tok::TokenKind::kw_true, tok::TokenKind::kw_false))
@@ -201,6 +225,8 @@ std::unique_ptr<Stmt> Parser::parseStmt() {
         return parseImport();
     if(match(tok::TokenKind::kw_fun))
         return parseFunStmt();
+    if(match(tok::TokenKind::kw_class))
+        return parseClass();
     return parseExprStmt();
 }
 
@@ -354,9 +380,48 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
     return std::make_unique<FunStmt>(identifier, params, type, std::move(body), loc);
 }
 
-//TODO
+// Only the second option from Grammar
+//      extends not implemented yet
 std::unique_ptr<Stmt> Parser::parseClass() { 
-    return nullptr;
+    llvm::SMLoc loc = Tok.getLocation();
+    consume(tok::TokenKind::kw_class);
+    expect(tok::TokenKind::IDENTIFIER);
+    Token identifier = Tok;
+    advance();
+    consume(tok::TokenKind::L_CURLY);
+    llvm::SmallVector<std::unique_ptr<Declare>, 256> fields;
+    llvm::SmallVector<std::unique_ptr<FunStmt>, 256> methods;
+    llvm::SmallVector<std::unique_ptr<FunStmt>, 256> constructors;
+    while (!match(tok::TokenKind::R_CURLY) && !atEnd()) {
+        if (Ty::isDefined(Tok.getLexeme()))
+            fields.push_back(std::unique_ptr<Declare>(static_cast<Declare*>(parseDeclareStmt().release())));
+        else if (match(tok::TokenKind::kw_fun))
+            methods.push_back(std::unique_ptr<FunStmt>(static_cast<FunStmt*>(parseFunStmt().release())));
+        else
+            constructors.push_back(parseConstructor());
+    }
+    consume(tok::TokenKind::R_CURLY);
+    return std::make_unique<ClassStmt>(identifier, fields, methods, constructors, loc);
+}
+
+std::unique_ptr<FunStmt> Parser::parseConstructor() {
+    llvm::SMLoc loc = Tok.getLocation();
+    expect(tok::TokenKind::IDENTIFIER);
+    Token identifier = Tok;
+    advance();
+    consume(tok::TokenKind::L_PAREN);
+    llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+    while (!match(tok::TokenKind::R_PAREN) && !atEnd()) {
+        std::unique_ptr<Declare> param = std::unique_ptr<Declare>(static_cast<Declare*>(parseDeclare().release()));
+        params.push_back(std::move(param));
+        if (!match(tok::TokenKind::R_PAREN))
+            consume(tok::TokenKind::COMMA);
+    }
+
+    advance();
+    std::unique_ptr<Stmt> body = parseStmt();
+    bool isConstructor = true;
+    return std::make_unique<FunStmt>(identifier, params, std::move(body), loc, isConstructor);
 }
 
 std::unique_ptr<Stmt> Parser::parseImport() { 
