@@ -1,5 +1,5 @@
-#ifndef BRAINWAVE_LEXER_TOKEN_A
-#define BRAINWAVE_LEXER_TOKEN_A
+#ifndef BRAINWAVE_UTILS_TOKEN_H
+#define BRAINWAVE_UTILS_TOKEN_H
 
 #include <brainwave/Utils/TokenKinds.h>
 #include "llvm/ADT/StringRef.h"
