@@ -51,7 +51,7 @@ class Environment {
     Environment *parent;
     llvm::StringMap<Ty::Type> typeMap;
     llvm::StringMap<llvm::AllocaInst*> allocations;
-    llvm::StringMap<std::unique_ptr<FunStmt>> funcMap;
+    llvm::StringMap<llvm::SmallVector<std::unique_ptr<FunStmt>, 256>> funcMap;
     llvm::StringMap<ClassInfo> classMap;
     llvm::StringMap<int> indexMap;
     int indexCount = 0;
@@ -68,11 +68,10 @@ class Environment {
     int getIndex(llvm::StringRef name);
     int getIndex(Token name);
     int numVars() { return indexCount; }
-    bool defineFunc(llvm::StringRef name, std::unique_ptr<FunStmt> FuncAST);
-    bool defineFunc(llvm::StringRef name);
+    void defineFunc(llvm::StringRef name);
     void attachFunc(llvm::StringRef name, std::unique_ptr<FunStmt> FuncAST);
-    FunStmt* getFunc(llvm::StringRef name);
-    const llvm::StringMap<std::unique_ptr<FunStmt>>& getFuncs() { return funcMap; }
+    llvm::SmallVector<std::unique_ptr<FunStmt>, 256>* getFunc(llvm::StringRef name);
+    const llvm::StringMap<llvm::SmallVector<std::unique_ptr<FunStmt>, 256>>& getFuncs() { return funcMap; }
     bool defineClass(llvm::StringRef name, Environment* ClassEnv);
     bool defineClass(llvm::StringRef name);
     void attachClass(llvm::StringRef name, std::unique_ptr<ClassStmt> stmt);
@@ -80,12 +79,12 @@ class Environment {
     bool hasMember(llvm::StringRef name);
     bool isLocal(llvm::StringRef name);
     bool isGlobal(llvm::StringRef name);
-    llvm::SmallVector<FunStmt*, 256> getAllFuncs() { 
-        llvm::SmallVector<FunStmt*, 256> funcs;
-        for (auto& entry : funcMap)
-            funcs.push_back(entry.getValue().get());
-        return funcs;
-    }
+//    llvm::SmallVector<FunStmt*, 256> getAllFuncs() { 
+//        llvm::SmallVector<FunStmt*, 256> funcs;
+//        for (auto& entry : funcMap)
+//            funcs.push_back(entry.getValue().get());
+//        return funcs;
+//    }
     EnvKind getKind() { return kind; }
     Environment* getParent() { return parent; }
 };

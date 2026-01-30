@@ -32,30 +32,21 @@ llvm::AllocaInst* Environment::getAlloca(llvm::StringRef name) {
     return nullptr;
 }
 
-bool Environment::defineFunc(llvm::StringRef name, std::unique_ptr<FunStmt> funcAST) {
-    if (funcMap.count(name))
-        return true;
-    funcMap[name] = std::move(funcAST);
-    return false;
+void Environment::defineFunc(llvm::StringRef name) {
+    if (!funcMap.count(name))
+        funcMap.try_emplace(name); 
 }
 
-bool Environment::defineFunc(llvm::StringRef name) {
+llvm::SmallVector<std::unique_ptr<FunStmt>, 256>* Environment::getFunc(llvm::StringRef name) {
     if (funcMap.count(name))
-        return true;
-    funcMap[name] = nullptr;
-    return false;
-}
-
-FunStmt* Environment::getFunc(llvm::StringRef name) {
-    if (funcMap.count(name) && funcMap[name]) 
-        return funcMap[name].get();
+        return &funcMap[name];
     else if (parent != nullptr)
         return parent->getFunc(name);
     return nullptr;
 }
 
 void Environment::attachFunc(llvm::StringRef name, std::unique_ptr<FunStmt> FuncAST) {
-    funcMap[name] = std::move(FuncAST);
+    funcMap[name].push_back(std::move(FuncAST));
 }
 
 bool Environment::defineClass(llvm::StringRef name, Environment* ClassEnv) {

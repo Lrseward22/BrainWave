@@ -757,7 +757,7 @@ class ClassStmt : public Stmt {
     llvm::SmallVector<std::unique_ptr<Declare>, 256> fields;
     llvm::SmallVector<std::unique_ptr<FunStmt>, 256> methods;
     llvm::SmallVector<std::unique_ptr<FunStmt>, 256> constructors;
-    const llvm::StringMap<std::unique_ptr<FunStmt>>* functions; /* For Debug purposes */
+    const llvm::StringMap<llvm::SmallVector<std::unique_ptr<FunStmt>, 256>>* functions; /* For Debug purposes */
     llvm::SMLoc loc;
 
     public:
@@ -771,7 +771,7 @@ class ClassStmt : public Stmt {
         llvm::SmallVector<std::unique_ptr<Declare>, 256> &getFields() { return fields; }
         llvm::SmallVector<std::unique_ptr<FunStmt>, 256> &getMethods() { return methods; }
         llvm::SmallVector<std::unique_ptr<FunStmt>, 256> &getConstructors() { return constructors; }
-        void setFunctions(const llvm::StringMap<std::unique_ptr<FunStmt>>* f) { functions = f; }
+        void setFunctions(const llvm::StringMap<llvm::SmallVector<std::unique_ptr<FunStmt>, 256>>* f) { functions = f; }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -785,8 +785,10 @@ class ClassStmt : public Stmt {
             for (auto& f : fields)
                 f->print(indent+4);
             std::cout << std::string(indent+2, ' ') << "Methods: \n";
-            for (auto& entry : *functions)
-                entry.getValue()->print(indent+4);
+            for (auto& entry : *functions) {
+                for (auto& func : entry.getValue())
+                    func->print(indent+4);
+            }
         }
 };
 

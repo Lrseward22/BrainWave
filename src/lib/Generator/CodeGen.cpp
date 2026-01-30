@@ -314,6 +314,7 @@ public:
     virtual void visit(FunExpr &expr) override { 
         llvm::SmallVector<Value*, 256> params;
         std::string mangledName = expr.getCalledFun()->getMangled();
+        //StringRef mangledName = expr.getIdentifier().getIdentifier();
         for (const auto& p: expr.getParams()) {
             p->accept(*this);
             params.push_back(V);
@@ -478,6 +479,7 @@ public:
         }
 
         std::string funName = stmt.getMangled();
+        //StringRef funName = stmt.getIdentifier().getIdentifier();
         FunctionType* FTy = FunctionType::get(
                 RetTy, FnTypes, false);
         Fn = Function::Create(
@@ -521,8 +523,10 @@ public:
                 Elements, stmt.getIdentifier().getIdentifier(), false);
         TypeMap[Ty::Type(stmt.getIdentifier().getIdentifier())] = T;
 
-        for (const auto& Fun : stmt.env->getFuncs())
-            Fun.getValue()->accept(*this);
+        for (auto& entry : stmt.env->getFuncs()) {
+            for (auto& func : entry.getValue())
+                if (func) func->accept(*this);
+        }
     };
     virtual void visit(Import &stmt) override {
     };
@@ -553,8 +557,7 @@ void CodeGen::compile(const char* Argv0, const char* F, llvm::TargetMachine* TM)
         if (auto* func = llvm::dyn_cast<FunStmt>(Tree.get())) {
             std::unique_ptr<FunStmt> F(static_cast<FunStmt*>(Tree.release()));
             llvm::StringRef funcName = F->getIdentifier().getIdentifier();
-            if (sema.getBaseEnvironment()->getFunc(funcName) == nullptr)
-                sema.getBaseEnvironment()->attachFunc(funcName, std::move(F));
+            sema.getBaseEnvironment()->attachFunc(funcName, std::move(F));
         } else if (auto* cl = llvm::dyn_cast<ClassStmt>(Tree.get())) {
             std::unique_ptr<ClassStmt> C(static_cast<ClassStmt*>(Tree.release()));
             llvm::StringRef className = C->getIdentifier().getIdentifier();

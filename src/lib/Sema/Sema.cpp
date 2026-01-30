@@ -146,14 +146,7 @@ public:
         popEnv();
 
         // Register function in base/class environment
-        if (currEnv->defineFunc(stmt.getIdentifier().getIdentifier())) {
-            llvm::StringRef iden = stmt.getIdentifier().getIdentifier();
-            Diag.report(stmt.getIdentifier().getLocation(), 
-                        diag::err_func_redeclaration, 
-                        iden);
-            Diag.report(baseEnv->getFunc(iden)->getLoc(),
-                    diag::note_fun_declared_here);
-        }
+        currEnv->defineFunc(stmt.getIdentifier().getIdentifier());
     };
     virtual void visit(ClassStmt &stmt) override { 
         // Register class identifier in Type table
@@ -256,6 +249,18 @@ class TypeChecker : public ASTVisitor{
         ResolvedLeft = std::move(lhs);
         ResolvedRight = std::move(rhs);
     };
+
+    bool checkExactSignature(const llvm::SmallVector<std::unique_ptr<Declare>, 256>& funcParams,
+            const llvm::SmallVector<std::unique_ptr<Declare>, 256>& checkParams) {
+        if (funcParams.size() != checkParams.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < funcParams.size(); ++i) {
+            if (!Ty::equals(funcParams[i]->getType(), checkParams[i]->getType()))
+                return false;
+        }
+        return true;
+    }
 
     bool checkExactSignature(const llvm::SmallVector<std::unique_ptr<Declare>, 256>& funcParams,
             const llvm::SmallVector<std::unique_ptr<Expr>, 256>& exprParams,
@@ -483,50 +488,73 @@ public:
         expr.setType(Value);
     };
     virtual void visit(FunExpr &expr) override { 
-        FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
+        auto* candidates = env->getFunc(expr.getIdentifier().getIdentifier());
         auto& exprParams = expr.getParams();
         for (auto& param : exprParams)
             param->accept(*this);
-        if (func) {
-            expr.setCalledFun(func);
-            const auto& funcParams = func->getParams();
-            bool skipFirst = func->isConstructor() || func->isMethod();
-            if (!checkExactSignature(funcParams, exprParams, skipFirst)) {
-                if (checkResolvableSignature(funcParams, exprParams, skipFirst))
-                    resolveFunction(funcParams, exprParams, skipFirst);
-                else {
-                    Diag.report(expr.getIdentifier().getLocation(),
-                                diag::err_fun_call, 
-                                expr.getIdentifier().getIdentifier());
-                    Diag.report(func->getLoc(), diag::note_fun_declared_here);
+
+        FunStmt* matchedFunc = nullptr;
+        bool exactMatch = false;
+        bool resolvableMatch = false;
+
+        if (candidates) {
+            for (auto& func : *candidates) {
+                const auto& funcParams = func->getParams();
+                bool skipFirst = func->isConstructor() || func->isMethod();
+                if (checkExactSignature(funcParams, exprParams, skipFirst)) {
+                    matchedFunc = func.get();
+                    exactMatch = true;
+                    break;
+                } else if (!resolvableMatch && 
+                        checkResolvableSignature(funcParams, exprParams, skipFirst)) {
+                    matchedFunc = func.get();
+                    resolvableMatch = true;
                 }
             }
-            Value = func->getType();
-        } else {
+        }
+
+        if (!matchedFunc) {
             // Check class constructors
             Environment* classEnv = env->getClass(expr.getIdentifier().getIdentifier());
-            if (!classEnv) {
-                Value = Ty::Type("void");
-            } else {
-                FunStmt* func = classEnv->getFunc(expr.getIdentifier().getIdentifier());
-                if (func) {
-                    expr.setCalledFun(func);
-                    const auto& funcParams = func->getParams();
-                    bool skipFirst = func->isConstructor() || func->isMethod();
-                    if (!checkExactSignature(funcParams, exprParams, skipFirst)) {
-                        if (checkResolvableSignature(funcParams, exprParams, skipFirst))
-                            resolveFunction(funcParams, exprParams, skipFirst);
-                        else {
-                            Diag.report(expr.getIdentifier().getLocation(),
-                                        diag::err_fun_call, 
-                                        expr.getIdentifier().getIdentifier());
-                            Diag.report(func->getLoc(), diag::note_fun_declared_here);
+            if (classEnv) {
+                auto* ctorCandidates = classEnv->getFunc(expr.getIdentifier().getIdentifier());
+                if (ctorCandidates) {
+                    for (auto& func : *ctorCandidates) {
+                        const auto& funcParams = func->getParams();
+                        bool skipFirst = func->isConstructor() || func->isMethod();
+                        if (checkExactSignature(funcParams, exprParams, skipFirst)) {
+                            matchedFunc = func.get();
+                            exactMatch = true;
+                            break;
+                        } else if (!resolvableMatch &&
+                                checkResolvableSignature(funcParams, exprParams, skipFirst)) {
+                            matchedFunc = func.get();
+                            resolvableMatch = true;
                         }
                     }
-                    Value = func->getType();
-                } else Value = Ty::Type("void");
+                }
             }
         }
+
+        if (matchedFunc) {
+            expr.setCalledFun(matchedFunc);
+            if (resolvableMatch && !exactMatch) {
+                const auto& funcParams = matchedFunc->getParams();
+                bool skipFirst = matchedFunc->isConstructor() || matchedFunc->isMethod();
+                resolveFunction(funcParams, exprParams, skipFirst);
+            }
+            Value = matchedFunc->getType();
+        } else {
+            Diag.report(expr.getIdentifier().getLocation(),
+                    diag::err_fun_call,
+                    expr.getIdentifier().getIdentifier());
+            if (candidates) {
+                for (auto& func : *candidates)
+                    if (func) Diag.report(func->getLoc(), diag::note_fun_declared_here);
+            }
+            Value = Ty::Type("void");
+        }
+
         expr.setType(Value);
     };
     virtual void visit(Cast &expr) override {
@@ -610,6 +638,19 @@ public:
         for (const auto& p : stmt.getParams())
             p->accept(*this);
         FunType = stmt.getType();
+        auto* candidates = env->getParent()->getFunc(stmt.getIdentifier().getIdentifier());
+        if (candidates) {
+            for (const auto& candidate : *candidates) {
+                if (candidate.get() == &stmt) continue;
+                if (checkExactSignature(candidate->getParams(), stmt.getParams())) {
+                    Diag.report(stmt.getLoc(),
+                            diag::err_func_redeclaration,
+                            stmt.getIdentifier().getIdentifier());
+                    Diag.report(candidate->getLoc(),
+                            diag::note_fun_declared_here);
+                }
+            }
+        }
         stmt.getBody()->accept(*this);
         env = prev;
     };
@@ -619,8 +660,10 @@ public:
         env = stmt.env;
         for (const auto& f : stmt.getFields())
             f->accept(*this);
-        for (auto& entry : env->getFuncs())
-            entry.getValue()->accept(*this);
+        for (auto& entry : env->getFuncs()) {
+            for (auto& func : entry.getValue())
+                if (func) func->accept(*this);
+        }
         env = prev;
     };
     virtual void visit(Import &stmt) override { };
@@ -715,7 +758,7 @@ public:
         expr.getRHS()->accept(*this);
     };
     virtual void visit(FunExpr &expr) override { 
-        FunStmt* func = env->getFunc(expr.getIdentifier().getIdentifier());
+        auto* func = env->getFunc(expr.getIdentifier().getIdentifier());
         if (!func && !env->getClass(expr.getIdentifier().getIdentifier())) {
             Diag.report(expr.getIdentifier().getLocation(),
                         diag::err_func_undeclared, 
@@ -806,14 +849,17 @@ public:
 
         for (const auto& f : stmt.getFields())
             f->accept(*this);
-        for (const auto& entry : env->getFuncs()) {
-            if (entry.getValue()->isConstructor() &&
-                    !(stmt.getIdentifier().getIdentifier() ==
-                     entry.getValue()->getIdentifier().getIdentifier()))
-                Diag.report(entry.getValue()->getLoc(),
-                        diag::err_bad_constructor,
-                        stmt.getIdentifier().getIdentifier());
-            entry.getValue()->accept(*this);
+        for (auto& entry : env->getFuncs()) {
+            for (auto& func : entry.getValue()) {
+                if (func && func->isConstructor() &&
+                        !(stmt.getIdentifier().getIdentifier() ==
+                         func->getIdentifier().getIdentifier())) {
+                    Diag.report(func->getLoc(),
+                            diag::err_bad_constructor,
+                            stmt.getIdentifier().getIdentifier());
+                }
+                func->accept(*this);
+            }
         }
         env = prev;
         mangledStr = currMangle;
@@ -1017,8 +1063,10 @@ public:
         env = stmt.env;
         for (const auto& f : stmt.getFields())
             f->accept(*this);
-        for (const auto& entry : env->getFuncs())
-            entry.getValue()->accept(*this);
+        for (auto& entry : env->getFuncs()) {
+            for (auto& func : entry.getValue())
+                if (func) func->accept(*this);
+        }
         env = prev;
     };
     virtual void visit(Import &stmt) override {
@@ -1348,8 +1396,10 @@ public:
     virtual void visit(ClassStmt &stmt) override {
         for (const auto& f : stmt.getFields())
             f->accept(*this);
-        for (const auto& entry : stmt.env->getFuncs())
-            entry.getValue()->accept(*this);
+        for (auto& entry : stmt.env->getFuncs()) {
+            for (auto& func : entry.getValue())
+                if (func) func->accept(*this);
+        }
     };
     virtual void visit(Import &stmt) override {
     };
