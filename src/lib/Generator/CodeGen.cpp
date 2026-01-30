@@ -313,11 +313,12 @@ public:
     };
     virtual void visit(FunExpr &expr) override { 
         llvm::SmallVector<Value*, 256> params;
+        std::string mangledName = expr.getCalledFun()->getMangled();
         for (const auto& p: expr.getParams()) {
             p->accept(*this);
             params.push_back(V);
         }
-        Function* callee = M->getFunction(expr.getIdentifier().getIdentifier());
+        Function* callee = M->getFunction(mangledName);
         V = Builder.CreateCall(callee, params);
     };
     virtual void visit(Cast &expr) override {
@@ -476,13 +477,13 @@ public:
             FnTypes.push_back(mapType(param->getType()));
         }
 
+        std::string funName = stmt.getMangled();
         FunctionType* FTy = FunctionType::get(
                 RetTy, FnTypes, false);
         Fn = Function::Create(
                 FTy, GlobalValue::ExternalLinkage,
-                stmt.getIdentifier().getIdentifier(), M);
-        BasicBlock* FnBB = createBasicBlock(
-                stmt.getIdentifier().getIdentifier());
+                funName, M);
+        BasicBlock* FnBB = createBasicBlock(funName);
         setCurr(FnBB);
 
         // Bind Parameters

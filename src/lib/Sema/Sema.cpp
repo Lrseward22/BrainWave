@@ -1,4 +1,5 @@
 #include <brainwave/Sema/Sema.h>
+#include <brainwave/Utils/Mangler.h>
 #include "llvm/Support/Casting.h"
 
 using namespace brainwave;
@@ -638,9 +639,11 @@ class ScopeResolution : public ASTVisitor{
     brainwave::DiagnosticsEngine &Diag;
     Environment* env;
     bool isLValue;
+    std::string mangledStr;
 
 public:
-    ScopeResolution(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
+    ScopeResolution(brainwave::DiagnosticsEngine &Diag) 
+        : Diag(Diag), mangledStr(Mangler::mangleStart()) { }
 
     void run(AST* Tree, Environment* e) {
         env = e;
@@ -784,12 +787,23 @@ public:
     virtual void visit(FunStmt &stmt) override {
         Environment* prev = env;
         env = stmt.env;
+        std::string currMangle = mangledStr;
+
+        mangledStr += Mangler::mangleFunction(stmt.getIdentifier().getIdentifier().str());
+        for (const auto& p : stmt.getParams())
+            mangledStr += Mangler::mangleType(p->getType().str());
+        stmt.setMangled(mangledStr);
+
         stmt.getBody()->accept(*this);
         env = prev;
+        mangledStr = currMangle;
     };
     virtual void visit(ClassStmt &stmt) override {
         Environment* prev = env;
         env = stmt.env;
+        std::string currMangle = mangledStr;
+        mangledStr += Mangler::mangleClass(stmt.getIdentifier().getIdentifier().str());
+
         for (const auto& f : stmt.getFields())
             f->accept(*this);
         for (const auto& entry : env->getFuncs()) {
@@ -802,6 +816,7 @@ public:
             entry.getValue()->accept(*this);
         }
         env = prev;
+        mangledStr = currMangle;
     };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override {

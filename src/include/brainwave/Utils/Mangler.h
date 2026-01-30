@@ -6,6 +6,7 @@
 namespace brainwave {
 
 class Mangler {
+public:
     static std::string mangleStart();
     static std::string mangleClass(std::string name);
     static std::string mangleFunction(std::string name);

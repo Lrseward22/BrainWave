@@ -705,6 +705,7 @@ class FunStmt : public Stmt {
     std::unique_ptr<Stmt> body;
     llvm::SMLoc loc;
     FunctionKind Kind;
+    std::string Mangled;
 
     public:
         FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
@@ -730,6 +731,8 @@ class FunStmt : public Stmt {
         bool isConstructor() { return Kind == FunctionKind::CONSTRUCTOR; }
         bool isMethod() { return Kind == FunctionKind::METHOD; }
         bool isNormal() { return Kind == FunctionKind::FUNCTION; }
+        void setMangled(std::string s) { Mangled = s; }
+        const std::string& getMangled() { return Mangled; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
         }
