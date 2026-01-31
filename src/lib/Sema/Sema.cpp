@@ -127,11 +127,12 @@ public:
     virtual void visit(FunStmt &stmt) override { 
         // Environment creation for function
         std::unique_ptr<Declare> thisParam = nullptr;
-        if (inClass) {
+        if (inClass && !stmt.isStatic()) {
             static const char* thisStr = "this";
+            bool isStatic = false;
             Token thisToken = Token(thisStr, 4, tok::TokenKind::kw_this);
             std::unique_ptr<Expr> thisVar = std::make_unique<Variable>(thisToken);
-            thisParam = std::make_unique<Declare>(classType, std::move(thisVar), stmt.getLoc());
+            thisParam = std::make_unique<Declare>(classType, std::move(thisVar), isStatic, stmt.getLoc());
             stmt.insertParamFront(std::move(thisParam));
 
             if (!stmt.isConstructor())
@@ -441,6 +442,8 @@ public:
     virtual void visit(Variable &expr) override {
         if (env->getVar(expr.getIdentifier()))
             Value = *env->getVar(expr.getIdentifier());
+        else if (Ty::isDefined(expr.getIdentifier().getIdentifier()))
+            Value = Ty::Type(expr.getIdentifier().getIdentifier());
         else Value = Ty::Type("void");
         expr.setType(Value);
     };
@@ -642,7 +645,8 @@ public:
         if (candidates) {
             for (const auto& candidate : *candidates) {
                 if (candidate.get() == &stmt) continue;
-                if (checkExactSignature(candidate->getParams(), stmt.getParams())) {
+                if (checkExactSignature(candidate->getParams(), stmt.getParams())
+                        && (stmt.isStatic() == candidate->isStatic())) {
                     Diag.report(stmt.getLoc(),
                             diag::err_func_redeclaration,
                             stmt.getIdentifier().getIdentifier());
@@ -832,7 +836,12 @@ public:
         env = stmt.env;
         std::string currMangle = mangledStr;
 
-        mangledStr += Mangler::mangleFunction(stmt.getIdentifier().getIdentifier().str());
+        if (stmt.isConstructor())
+            mangledStr += Mangler::mangleConstructor();
+        else
+            mangledStr += Mangler::mangleFunction(stmt.getIdentifier().getIdentifier().str());
+        if (stmt.isStatic())
+            mangledStr += Mangler::mangleStatic();
         for (const auto& p : stmt.getParams())
             mangledStr += Mangler::mangleType(p->getType().str());
         stmt.setMangled(mangledStr);
@@ -1057,6 +1066,7 @@ public:
         if (!mustReturn && !(stmt.getType().is(Ty::TypeKind::Void) || stmt.isConstructor()))
             Diag.report(stmt.getLoc(), diag::err_missing_return);
         mustReturn = false;
+        escape = false;
     };
     virtual void visit(ClassStmt &stmt) override {
         Environment* prev = env;
@@ -1131,8 +1141,10 @@ public:
         } else {
         // Desugar obj.method(a, b) to method(obj, a, b)
             if (FunExpr* fun = llvm::dyn_cast<FunExpr>(expr.getRight())) {
-                auto objExpr = expr.getLeftUnique();
-                fun->insertParamFront(std::move(objExpr));
+                if (!fun->getCalledFun()->isStatic()) {
+                    auto objExpr = expr.getLeftUnique();
+                    fun->insertParamFront(std::move(objExpr));
+                }
                 ReplaceExpr = std::move(expr.getRightUnique());
             }
         }

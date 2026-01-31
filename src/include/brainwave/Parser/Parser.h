@@ -11,6 +11,7 @@ class Parser {
     Lexer &Lex;
     Token Tok;
     bool HasError;
+    bool isStatic = false;
 
     void panic() {
         expect(tok::SEMI);
@@ -100,6 +101,10 @@ class Parser {
 
     void FunReturnError() {
         getDiagnostics().report(Tok.getLocation(), diag::err_invalid_return_type);
+    }
+
+    void StaticConstructorError() {
+        getDiagnostics().report(Tok.getLocation(), diag::err_static_constructor, Tok.getIdentifier());
     }
 
     public:

@@ -61,11 +61,6 @@ public:
         TypeMap[Ty::Type("float")] = Type::getFloatTy(M->getContext());
         TypeMap[Ty::Type("double")] = Type::getDoubleTy(M->getContext());
         PtrTy = Type::getInt8PtrTy(M->getContext());
-
-        //PrintFTy = FunctionType::get(Builder.getmapType(Ty::Type("int"))(), Builder.getInt8PtrTy(), true);
-        //PrintF = M->getOrInsertFunction("printf", PrintFTy);
-        //ScanFTy = FunctionType::get(Builder.getmapType(Ty::Type("int"))(), Builder.getInt8PtrTy(), true);
-        //ScanF = M->getOrInsertFunction("scanf", ScanFTy);
     }
 
     void createMain() {

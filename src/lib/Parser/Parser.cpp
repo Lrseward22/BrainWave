@@ -201,7 +201,8 @@ std::unique_ptr<Expr> Parser::parseFunExpr(Token identifier) {
 std::unique_ptr<Stmt> Parser::parseStmt() {
     if (match(tok::TokenKind::L_CURLY))
         return parseBlock();
-    if (Ty::isDefined(Tok.getLexeme()))
+    if (Ty::isDefined(Tok.getLexeme())
+            && peek() != tok::TokenKind::PERIOD)
         return parseDeclareStmt();
     if (match(tok::TokenKind::kw_print))
         return parsePrint();
@@ -377,7 +378,7 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
     advance();
     std::unique_ptr<Stmt> body = parseStmt();
     
-    return std::make_unique<FunStmt>(identifier, params, type, std::move(body), loc);
+    return std::make_unique<FunStmt>(identifier, params, type, std::move(body), loc, isStatic);
 }
 
 // Only the second option from Grammar
@@ -393,6 +394,11 @@ std::unique_ptr<Stmt> Parser::parseClass() {
     llvm::SmallVector<std::unique_ptr<FunStmt>, 256> methods;
     llvm::SmallVector<std::unique_ptr<FunStmt>, 256> constructors;
     while (!match(tok::TokenKind::R_CURLY) && !atEnd()) {
+        isStatic = false;
+        if (match(tok::TokenKind::kw_static)) {
+            consume(tok::TokenKind::kw_static);
+            isStatic = true;
+        }
         if (Ty::isDefined(Tok.getLexeme()))
             fields.push_back(std::unique_ptr<Declare>(static_cast<Declare*>(parseDeclareStmt().release())));
         else if (match(tok::TokenKind::kw_fun))
@@ -405,6 +411,9 @@ std::unique_ptr<Stmt> Parser::parseClass() {
 }
 
 std::unique_ptr<FunStmt> Parser::parseConstructor() {
+    if (isStatic) {
+        StaticConstructorError();
+    }
     llvm::SMLoc loc = Tok.getLocation();
     expect(tok::TokenKind::IDENTIFIER);
     Token identifier = Tok;
@@ -421,7 +430,8 @@ std::unique_ptr<FunStmt> Parser::parseConstructor() {
     advance();
     std::unique_ptr<Stmt> body = parseStmt();
     bool isConstructor = true;
-    return std::make_unique<FunStmt>(identifier, params, std::move(body), loc, isConstructor);
+    isStatic = false;
+    return std::make_unique<FunStmt>(identifier, params, std::move(body), loc, isConstructor, isStatic);
 }
 
 std::unique_ptr<Stmt> Parser::parseImport() { 
@@ -441,7 +451,8 @@ std::unique_ptr<Stmt> Parser::parseDeclare() {
     expect(tok::TokenKind::IDENTIFIER);
     std::unique_ptr<Expr> iden = std::make_unique<Variable>(Tok);
     advance();
-    return std::make_unique<Declare>(type, std::move(iden));
+    bool isStatic = false;
+    return std::make_unique<Declare>(type, std::move(iden), isStatic);
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
@@ -460,7 +471,7 @@ std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
     }
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Declare>(type, std::move(expr));
+    return std::make_unique<Declare>(type, std::move(expr), isStatic);
 }
 
 std::unique_ptr<Stmt> Parser::parseExprStmt() {

@@ -27,7 +27,7 @@ statement
     ;
 
 funcDefStatement
-    : kw_FUN IDENTIFIER L_PAREN paramList? R_PAREN ARROW type block
+    : (kw_STATIC)? kw_FUN IDENTIFIER L_PAREN paramList? R_PAREN ARROW type block
     ;
 
 returnStatement
@@ -98,7 +98,7 @@ importStatement
     ;
     
 declareStatement
-    : TYPE (IDENTIFIER | assignExpr)
+    : (kw_STATIC)? TYPE (IDENTIFIER | assignExpr)
     ;
 
 exprStatement

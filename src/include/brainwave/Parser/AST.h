@@ -429,18 +429,20 @@ class Block : public Stmt {
 class Declare : public Stmt {
     Ty::Type type;
     std::unique_ptr<Expr> expr;
+    bool Static;
     llvm::SMLoc loc;
 
     public:
-        Declare(Token& type, std::unique_ptr<Expr> expr)
+        Declare(Token& type, std::unique_ptr<Expr> expr, bool Static)
             : Stmt(StmtKind), type(type.getLexeme()),
-            expr(std::move(expr)), loc(type.getLocation()) {}
-        Declare(Ty::Type type, std::unique_ptr<Expr> expr, llvm::SMLoc loc)
+            expr(std::move(expr)), Static(Static), loc(type.getLocation()) {}
+        Declare(Ty::Type type, std::unique_ptr<Expr> expr, bool Static, llvm::SMLoc loc)
             : Stmt(StmtKind), type(type),
-            expr(std::move(expr)), loc(loc) {}
+            expr(std::move(expr)), Static(Static), loc(loc) {}
         Ty::Type getType() { return type; }
         void setType(Ty::Type T) { type = T; }
         Expr* getExpr() { return expr.get(); }
+        bool isStatic() { return Static; }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -705,19 +707,21 @@ class FunStmt : public Stmt {
     std::unique_ptr<Stmt> body;
     llvm::SMLoc loc;
     FunctionKind Kind;
+    bool Static;
     std::string Mangled;
 
     public:
         FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
-                Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc)
+                Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool Static)
             : Stmt(FunKind), identifier(tok), params(std::move(params)),
               type(Ty::Type(type.getLexeme())), body(std::move(body)),
-              loc(loc), Kind(FunctionKind::FUNCTION) {}
+              loc(loc), Kind(FunctionKind::FUNCTION), Static(Static) {}
         FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
-                std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool constructor)
+                std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool constructor, bool Static)
             : Stmt(FunKind), identifier(tok), params(std::move(params)),
               type(Ty::Type("void")), body(std::move(body)),
-              loc(loc), Kind(constructor ? FunctionKind::CONSTRUCTOR : FunctionKind::METHOD) {}
+              loc(loc), Kind(constructor ? FunctionKind::CONSTRUCTOR : FunctionKind::METHOD),
+              Static(Static) {}
         Token getIdentifier() { return identifier; }
         llvm::SmallVector<std::unique_ptr<Declare>, 256> &getParams() { return params; }
         void insertParamFront(std::unique_ptr<Declare> p) { params.insert(params.begin(), std::move(p)); }
@@ -731,6 +735,7 @@ class FunStmt : public Stmt {
         bool isConstructor() { return Kind == FunctionKind::CONSTRUCTOR; }
         bool isMethod() { return Kind == FunctionKind::METHOD; }
         bool isNormal() { return Kind == FunctionKind::FUNCTION; }
+        bool isStatic() { return Static; }
         void setMangled(std::string s) { Mangled = s; }
         const std::string& getMangled() { return Mangled; }
         virtual void accept(ASTVisitor &V) override {

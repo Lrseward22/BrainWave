@@ -11,6 +11,7 @@ DIAG(err_unexpected_token,      Error, "Unexpected {0}, expected {1}")
 DIAG(err_unmatched_char,        Error, "Unmatched character {0}")
 DIAG(err_invalid_expr,          Error, "Invalid expression")
 DIAG(err_invalid_return_type,   Error, "Invalid function return type")
+DIAG(err_static_constructor,    Error, "Constructor {0} cannot be marked static")
 
 DIAG(err_void_iden,             Error, "Variable {0} cannot be of type void")
 DIAG(err_iden_redeclaration,    Error, "Illegal redeclaration of variable: {0}")
