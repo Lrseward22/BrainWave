@@ -125,11 +125,16 @@ bool emit(llvm::StringRef Argv0, llvm::Module *M,
     return true;
 }
 
-bool linkExecutable(llvm::StringRef Argv0, llvm::StringRef ObjectFile, llvm::StringRef OutputFile) {
+bool linkExecutable(llvm::StringRef Argv0, llvm::StringRef ObjectFile,
+        llvm::StringRef OutputFile, llvm::ArrayRef<std::string> RuntimeLibs) {
     // Use system linker (gcc or clang)
     //std::string LinkerCmd = "gcc -no-pie ";
     std::string LinkerCmd = "gcc ";
     LinkerCmd += ObjectFile.str();
+    for (const auto& lib : RuntimeLibs) {
+        LinkerCmd += " ";
+        LinkerCmd += lib;
+    }
     LinkerCmd += " -o ";
     LinkerCmd += OutputFile.str();
     
@@ -232,7 +237,11 @@ int main(int argc_, const char **argv_) {
             else
                 ExeName = InputRef.drop_back(3).str();
 
-            if (!linkExecutable(argv_[0], ObjectFile, ExeName)) return 1;
+            llvm::SmallVector<std::string, 8> RuntimeLibs = {
+                BW_RUNTIME_PATH,
+            };
+
+            if (!linkExecutable(argv_[0], ObjectFile, ExeName, RuntimeLibs)) return 1;
 
             llvm::sys::fs::remove(ObjectFile);
         }

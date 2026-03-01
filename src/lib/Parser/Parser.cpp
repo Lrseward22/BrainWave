@@ -378,7 +378,7 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
     advance();
     std::unique_ptr<Stmt> body = parseStmt();
     
-    return std::make_unique<FunStmt>(identifier, params, type, std::move(body), loc, isStatic);
+    return std::make_unique<FunStmt>(identifier, std::move(params), type, std::move(body), loc, isStatic);
 }
 
 // Only the second option from Grammar
@@ -406,6 +406,7 @@ std::unique_ptr<Stmt> Parser::parseClass() {
         else
             constructors.push_back(parseConstructor());
     }
+    isStatic = false;
     consume(tok::TokenKind::R_CURLY);
     return std::make_unique<ClassStmt>(identifier, fields, methods, constructors, loc);
 }
@@ -431,7 +432,7 @@ std::unique_ptr<FunStmt> Parser::parseConstructor() {
     std::unique_ptr<Stmt> body = parseStmt();
     bool isConstructor = true;
     isStatic = false;
-    return std::make_unique<FunStmt>(identifier, params, std::move(body), loc, isConstructor, isStatic);
+    return std::make_unique<FunStmt>(identifier, std::move(params), std::move(body), loc, isConstructor, isStatic);
 }
 
 std::unique_ptr<Stmt> Parser::parseImport() { 

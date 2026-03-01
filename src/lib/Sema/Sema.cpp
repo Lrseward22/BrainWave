@@ -687,6 +687,7 @@ class ScopeResolution : public ASTVisitor{
     Environment* env;
     bool isLValue;
     std::string mangledStr;
+    bool staticVar = false;
 
 public:
     ScopeResolution(brainwave::DiagnosticsEngine &Diag) 
@@ -730,14 +731,18 @@ public:
     };
     virtual void visit(Literal &expr) override { };
     virtual void visit(Variable &expr) override {
+        llvm::StringRef name = expr.getData();
         isLValue = true;
-        if (env->isLocal(expr.getIdentifier().getIdentifier()))
+        expr.setMangled(staticVar
+                ? mangledStr + Mangler::mangleVar(name.str())
+                : name.str());
+        if (env->isLocal(name))
             return;
 
-        if (env->isGlobal(expr.getIdentifier().getIdentifier()))
+        if (env->isGlobal(name))
             return;
 
-        if (env->hasMember(expr.getIdentifier().getIdentifier())) {
+        if (env->hasMember(name)) {
             if (env->getKind() != EnvKind::Class)
                 Diag.report(expr.getIdentifier().getLocation(),
                             diag::err_illegal_field_access, 
@@ -875,7 +880,9 @@ public:
     };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override {
+        staticVar = stmt.isStatic();
         stmt.getExpr()->accept(*this);
+        staticVar = false;
     };
     virtual void visit(ExprStmt &stmt) override {
         stmt.getExpr()->accept(*this);
@@ -1450,4 +1457,112 @@ std::unique_ptr<AST> Sema::next() {
     ConFl.run(ast.get(), getBaseEnvironment());
     ast = Des.run(std::move(ast));
     return ast;
+}
+
+void Sema::registerString() {
+    Environment* baseEnv = getBaseEnvironment();
+
+    auto stringEnv = std::make_unique<Environment>(EnvKind::Class, baseEnv);
+    Environment* stringEnvPtr = stringEnv.get();
+    envs.push_back(std::move(stringEnv));
+
+    Ty::Type stringType("string");
+    Ty::Type intType("int");
+    Ty::Type boolType("bool");
+
+    auto addMethod = [&](const std::string& name,
+            const std::string& mangledName,
+            Ty::Type returnType,
+            llvm::SmallVector<std::unique_ptr<Declare>, 256> params) {
+        auto func = createFunctionDecl(name, returnType, std::move(params));
+        func->setMangled(mangledName);
+        stringEnvPtr->defineFunc(name);
+        stringEnvPtr->attachFunc(name, std::move(func));
+    };
+
+    // String.length() -> int
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        addMethod("length", "bw_string_length", intType, std::move(params));
+    }
+    // String.concat() -> string
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("concat", "bw_string_concat", stringType, std::move(params));
+    }
+    // String.add() -> string
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("add", "bw_string_add", stringType, std::move(params));
+    }
+    // String.at()
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("index", intType));
+        addMethod("at", "bw_string_at", stringType, std::move(params));
+    }
+    // String.slice() -> string
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("start", intType));
+        params.push_back(createDeclare("stop", intType));
+        addMethod("slice", "bw_string_slice", stringType, std::move(params));
+    }
+    // string.compare() -> int
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("compare", "bw_string_compare", intType, std::move(params));
+    }
+    // string.eq() -> bool
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("eq", "bw_string_eq", boolType, std::move(params));
+    }
+    // string.ne() -> bool
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("ne", "bw_string_ne", boolType, std::move(params));
+    }
+    // string.lt() -> bool
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("lt", "bw_string_lt", boolType, std::move(params));
+    }
+    // string.le() -> bool
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("le", "bw_string_le", boolType, std::move(params));
+    }
+    // string.gt() -> bool
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("gt", "bw_string_gt", boolType, std::move(params));
+    }
+    // string.ge() -> bool
+    {
+        llvm::SmallVector<std::unique_ptr<Declare>, 256> params;
+        params.push_back(createDeclare("this", stringType));
+        params.push_back(createDeclare("other", stringType));
+        addMethod("ge", "bw_string_ge", boolType, std::move(params));
+    }
+    baseEnv->defineClass("string", stringEnvPtr);
 }

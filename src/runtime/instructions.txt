@@ -1,0 +1,9 @@
+Create LLVM bitcode for runtime library:
+`clang -c -emit-llvm -02 string.c -o string.bc`
+
+Register Class into semantic analyzer
+    Include function signatures
+
+Declare function signatures in LLVM IR
+
+Link bitcode at compilation time

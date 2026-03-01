@@ -13,6 +13,7 @@ public:
     static std::string mangleConstructor();
     static std::string mangleStatic();
     static std::string mangleType(std::string type);
+    static std::string mangleVar(std::string name);
 };
 } // Namespace brainwave
 

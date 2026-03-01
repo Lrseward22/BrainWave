@@ -17,14 +17,14 @@ Ty::Type* Environment::getVar(Token name) {
     return nullptr;
 }
 
-bool Environment::declareAlloca(llvm::StringRef name, llvm::AllocaInst* alloca) {
+bool Environment::declareAlloca(llvm::StringRef name, llvm::Value* alloca) {
     if (allocations.count(name))
         return true;
     allocations[name] = alloca;
     return false;
 }
 
-llvm::AllocaInst* Environment::getAlloca(llvm::StringRef name) {
+llvm::Value* Environment::getAlloca(llvm::StringRef name) {
     if (allocations.count(name))
         return allocations[name];
     else if (parent != nullptr)

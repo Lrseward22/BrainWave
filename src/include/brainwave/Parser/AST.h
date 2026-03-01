@@ -226,12 +226,15 @@ class Literal : public Expr {
 class Variable : public Expr {
     Token identifier;
     Ty::Type type;
+    std::string mangled;
 
     public:
         Variable(const Token& tok) : Expr(VariableKind), identifier(tok) {}
         Token getIdentifier() { return identifier; }
         llvm::StringRef getData() { return identifier.getIdentifier(); }
         bool isThis() { return identifier.is(tok::TokenKind::kw_this); }
+        std::string getMangled() { return mangled; }
+        void setMangled(std::string m) { mangled = m; }
         virtual std::unique_ptr<Expr> clone() const override {
             auto copy = std::make_unique<Variable>(identifier);
             copy->setType(type);
@@ -711,12 +714,17 @@ class FunStmt : public Stmt {
     std::string Mangled;
 
     public:
-        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
+        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> params,
                 Token& type, std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool Static)
             : Stmt(FunKind), identifier(tok), params(std::move(params)),
               type(Ty::Type(type.getLexeme())), body(std::move(body)),
               loc(loc), Kind(FunctionKind::FUNCTION), Static(Static) {}
-        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> &params,
+        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> params,
+                Ty::Type type, std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool Static)
+            : Stmt(FunKind), identifier(tok), params(std::move(params)),
+              type(type), body(std::move(body)),
+              loc(loc), Kind(FunctionKind::FUNCTION), Static(Static) {}
+        FunStmt(const Token& tok, llvm::SmallVector<std::unique_ptr<Declare>, 256> params,
                 std::unique_ptr<Stmt> body, llvm::SMLoc loc, bool constructor, bool Static)
             : Stmt(FunKind), identifier(tok), params(std::move(params)),
               type(Ty::Type("void")), body(std::move(body)),

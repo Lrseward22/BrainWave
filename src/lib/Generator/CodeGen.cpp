@@ -17,14 +17,7 @@ class IRVisitor : public ASTVisitor {
     Module* M;
     IRBuilder<> Builder;
     DenseMap<Ty::Type, Type*> TypeMap;
-    //Type* VoidTy;
-    //Type* mapType(Ty::Type("bool"));
-    //Type* mapType(Ty::Type("int"));
-    //Type* mapType(Ty::Type("float"));
-    //Type* mapType(Ty::Type("double"));
     PointerType *PtrTy;
-    //Value* PrintStr;
-    //Value* ReadStr;
     Value* V;
     Function* Fn;
     BasicBlock* Curr;
@@ -33,6 +26,7 @@ class IRVisitor : public ASTVisitor {
     BasicBlock* ContBB;
     BasicBlock* BreakBB;
     bool AddressMode = false;
+    bool staticVarDecl = false;
 
     BasicBlock* createBasicBlock(const Twine& name,
                       BasicBlock* InsertBefore = nullptr) {
@@ -53,6 +47,45 @@ class IRVisitor : public ASTVisitor {
         llvm::report_fatal_error("Misssing LLVM type mapping");
     }
 
+    Function* declareMethod(const std::string& name,
+            Type* retTy,
+            ArrayRef<Type*> paramTys) {
+        FunctionType* FTy = FunctionType::get(retTy, paramTys, false);
+        return Function::Create(FTy, Function::ExternalLinkage, name, M);
+    }
+
+    void declareStringRuntime() {
+        LLVMContext& Ctx = M->getContext();
+        Type* I32 = Type::getInt32Ty(Ctx);
+        Type* I8Ptr = Type::getInt8PtrTy(Ctx);
+
+        StructType* StringTy = StructType::create(Ctx, "bw_String");
+        StringTy->setBody({I32, I8Ptr});
+        TypeMap[Ty::Type("string")] = StringTy;
+
+        PointerType* StringPtrTy = PointerType::get(StringTy, 0);
+
+        // Define methods
+        declareMethod("bw_string_from_cstr", StringTy, {I8Ptr});
+        declareMethod("bw_string_length", I32, {StringPtrTy});
+        declareMethod("bw_string_concat", StringTy, {StringPtrTy, StringPtrTy});
+        declareMethod("bw_string_add", StringTy, {StringPtrTy, StringPtrTy});
+        declareMethod("bw_string_at", StringTy, {StringPtrTy, I32});
+        declareMethod("bw_string_slice", StringTy, {StringPtrTy, I32, I32});
+        declareMethod("bw_string_compare", I32, {StringPtrTy, StringPtrTy});
+        for (const char* name : {"bw_string_eq", "bw_string_ne",
+                                 "bw_string_lt", "bw_string_le",
+                                 "bw_string_gt", "bw_string_ge"})
+            declareMethod(name, I32, {StringPtrTy, StringPtrTy});
+    }
+
+    AllocaInst* storeBuiltIntoAlloca(Value* val, Ty::Type t) {
+        Type* Ty = mapType(t);
+        AllocaInst* alloca = Builder.CreateAlloca(Ty, nullptr, "tmp");
+        Builder.CreateStore(val, alloca);
+        return alloca;
+    }
+
 public:
     IRVisitor(Module* M, Environment* env) : M(M), env(env), Builder(M->getContext()) {
         TypeMap[Ty::Type()] = Type::getVoidTy(M->getContext());
@@ -61,6 +94,8 @@ public:
         TypeMap[Ty::Type("float")] = Type::getFloatTy(M->getContext());
         TypeMap[Ty::Type("double")] = Type::getDoubleTy(M->getContext());
         PtrTy = Type::getInt8PtrTy(M->getContext());
+
+        declareStringRuntime();
     }
 
     void createMain() {
@@ -81,7 +116,6 @@ public:
         Tree->print();
         std::cout << "\n";
         Tree->accept(*this);
-        //Builder.CreateCall(PrintF, {PrintStr, V});
     }
 
     // Expression ASTs
@@ -119,8 +153,13 @@ public:
 
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUS:
-                if (Type.get() == "string");
-                // FIXME: String Concatonation
+                if (Type.get() == "string") {
+                    Function* addFn = M->getFunction("bw_string_add");
+                    AllocaInst* leftPtr = storeBuiltIntoAlloca(left, Ty::Type("string"));
+                    AllocaInst* rightPtr = storeBuiltIntoAlloca(right, Ty::Type("string"));
+                    V = Builder.CreateCall(addFn, {leftPtr, rightPtr}, "str.add");
+                } else if (Type.get() == "float" || Type.get() == "double")
+                    V = Builder.CreateFAdd(left, right);
                 else
                     V = Builder.CreateAdd(left, right);
                 break;
@@ -155,54 +194,72 @@ public:
                     V = Builder.CreateICmpEQ(left, right);
                 else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOEQ(left, right);
-                else if (Type.is(Ty::TypeKind::String))
-                    // FIXME: Runtime library for this
-                    ;
+                else if (Type.is(Ty::TypeKind::String)) {
+                    Function* eqFn = M->getFunction("bw_string_eq");
+                    V = Builder.CreateCall(eqFn, {left, right}, "str.eq");
+                    V = Builder.CreateICmpNE(V, ConstantInt::get(
+                                Type::getInt32Ty(M->getContext()), 0), "str.bool");
+                }
                 break;
             case tok::TokenKind::NEQ:
                 if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpNE(left, right);
                 else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpONE(left, right);
-                else if (Type.is(Ty::TypeKind::String))
-                    // FIXME: Runtime library for this
-                    ;
+                else if (Type.is(Ty::TypeKind::String)) {
+                    Function* neFn = M->getFunction("bw_string_ne");
+                    V = Builder.CreateCall(neFn, {left, right}, "str.ne");
+                    V = Builder.CreateICmpNE(V, ConstantInt::get(
+                                Type::getInt32Ty(M->getContext()), 0), "str.bool");
+                }
                 break;
             case tok::TokenKind::LESS:
                 if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSLT(left, right);
                 else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOLT(left, right);
-                else if (Type.is(Ty::TypeKind::String))
-                    // FIXME: Runtime library for this
-                    ;
+                else if (Type.is(Ty::TypeKind::String)) {
+                    Function* ltFn = M->getFunction("bw_string_lt");
+                    V = Builder.CreateCall(ltFn, {left, right}, "str.lt");
+                    V = Builder.CreateICmpNE(V, ConstantInt::get(
+                                Type::getInt32Ty(M->getContext()), 0), "str.bool");
+                }
                 break;
             case tok::TokenKind::LEQ:
                 if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSLE(left, right);
                 else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOLE(left, right);
-                else if (Type.is(Ty::TypeKind::String))
-                    // FIXME: Runtime library for this
-                    ;
+                else if (Type.is(Ty::TypeKind::String)) {
+                    Function* leFn = M->getFunction("bw_string_le");
+                    V = Builder.CreateCall(leFn, {left, right}, "str.le");
+                    V = Builder.CreateICmpNE(V, ConstantInt::get(
+                                Type::getInt32Ty(M->getContext()), 0), "str.bool");
+                }
                 break;
             case tok::TokenKind::GREATER:
                 if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSGT(left, right);
                 else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOGT(left, right);
-                else if (Type.is(Ty::TypeKind::String))
-                    // FIXME: Runtime library for this
-                    ;
+                else if (Type.is(Ty::TypeKind::String)) {
+                    Function* gtFn = M->getFunction("bw_string_gt");
+                    V = Builder.CreateCall(gtFn, {left, right}, "str.gt");
+                    V = Builder.CreateICmpNE(V, ConstantInt::get(
+                                Type::getInt32Ty(M->getContext()), 0), "str.bool");
+                }
                 break;
             case tok::TokenKind::GEQ:
                 if (Type.get() == "int" || Type.get() == "bool")
                     V = Builder.CreateICmpSGE(left, right);
                 else if (Type.get() == "float" || Type.get() == "double")
                     V = Builder.CreateFCmpOGE(left, right);
-                else if (Type.is(Ty::TypeKind::String))
-                    // FIXME: Runtime library for this
-                    ;
+                else if (Type.is(Ty::TypeKind::String)) {
+                    Function* geFn = M->getFunction("bw_string_ge");
+                    V = Builder.CreateCall(geFn, {left, right}, "str.ge");
+                    V = Builder.CreateICmpNE(V, ConstantInt::get(
+                                Type::getInt32Ty(M->getContext()), 0), "str.bool");
+                }
                 break;
         }
     };
@@ -245,16 +302,44 @@ public:
             expr.getData().getAsDouble(dval);
             V = ConstantFP::get(mapType(Ty::Type("double")), dval);
         } else if (Type.is(Ty::TypeKind::String)) {
-            // Deal with this later
+            llvm::StringRef raw = expr.getData();
+            std::string content = raw.str();
+
+            Constant* data = ConstantDataArray::getString(M->getContext(), content, true);
+            GlobalVariable* globalStr = new GlobalVariable(
+                    *M,
+                    data->getType(),
+                    true,
+                    GlobalValue::PrivateLinkage,
+                    data,
+                    ".str"
+                    );
+            globalStr->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+
+            Value* zero = ConstantInt::get(Type::getInt32Ty(M->getContext()), 0);
+            Value* strPtr = Builder.CreateInBoundsGEP(
+                    data->getType(), globalStr, {zero, zero}, "str.ptr");
+            Function* fromCStr = M->getFunction("bw_string_from_cstr");
+            V = Builder.CreateCall(fromCStr, {strPtr}, "str");
         }
     };
     virtual void visit(Variable &expr) override {
         auto id = expr.getIdentifier().getIdentifier();
-        AllocaInst* alloca = env->getAlloca(id);
+        Value* alloca = env->getAlloca(id);
         Ty::Type Type = expr.getType();
         if (AddressMode) {
             if (!alloca) {
-                alloca = Builder.CreateAlloca(mapType(Type), nullptr, id);
+                // static variables might not have unique name. Must use mangled
+                if (staticVarDecl) {
+                    alloca = new GlobalVariable(
+                            *M,
+                            mapType(Type),
+                            false,
+                            GlobalValue::ExternalLinkage,
+                            Constant::getNullValue(mapType(Type)),
+                            expr.getMangled());
+                } else alloca = Builder.CreateAlloca(mapType(Type), nullptr, id);
+                // id should be unique to env scope 
                 env->declareAlloca(id, alloca);
             } 
             V = alloca;
@@ -308,10 +393,26 @@ public:
     };
     virtual void visit(FunExpr &expr) override { 
         llvm::SmallVector<Value*, 256> params;
-        std::string mangledName = expr.getCalledFun()->getMangled();
-        //StringRef mangledName = expr.getIdentifier().getIdentifier();
-        for (const auto& p: expr.getParams()) {
-            p->accept(*this);
+        FunStmt* calledFun = expr.getCalledFun();
+        std::string mangledName = calledFun->getMangled();
+
+        const auto& declaredParams = calledFun->getParams();
+
+        for (size_t i = 0; i < expr.getParams().size(); i++) {
+            const auto& p = expr.getParams()[i];
+            bool isThisParam = (i == 0) &&
+                (calledFun->isMethod() || calledFun->isConstructor()) &&
+                !declaredParams.empty() &&
+                (declaredParams[0]->getType().is(Ty::TypeKind::UserDefined) ||
+                 declaredParams[0]->getType().is(Ty::TypeKind::String));
+
+            if (isThisParam) {
+                bool prevMode = AddressMode;
+                AddressMode = true;
+                p->accept(*this);
+                AddressMode = prevMode;
+            } else p->accept(*this);
+
             params.push_back(V);
         }
         Function* callee = M->getFunction(mangledName);
@@ -469,12 +570,15 @@ public:
 
         // Get Parameter Types
         SmallVector<Type*, 256> FnTypes;
-        for (auto& param : stmt.getParams()) {
-            FnTypes.push_back(mapType(param->getType()));
+        for (size_t i = 0; i < stmt.getParams().size(); i++) {
+            const auto& p = stmt.getParams()[i];
+            if (stmt.isMethod() && i == 0) {
+                PointerType* ObjPtr = PointerType::get(mapType(p->getType()), 0);
+                FnTypes.push_back(ObjPtr);
+            } else FnTypes.push_back(mapType(p->getType()));
         }
 
         std::string funName = stmt.getMangled();
-        //StringRef funName = stmt.getIdentifier().getIdentifier();
         FunctionType* FTy = FunctionType::get(
                 RetTy, FnTypes, false);
         Fn = Function::Create(
@@ -526,7 +630,9 @@ public:
     virtual void visit(Import &stmt) override {
     };
     virtual void visit(Declare &stmt) override {
+        staticVarDecl = stmt.isStatic();
         stmt.getExpr()->accept(*this);
+        staticVarDecl = false;
     };
     virtual void visit(ExprStmt &stmt) override { 
         stmt.getExpr()->accept(*this);

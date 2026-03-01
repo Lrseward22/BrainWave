@@ -50,7 +50,7 @@ class ClassInfo {
 class Environment {
     Environment *parent;
     llvm::StringMap<Ty::Type> typeMap;
-    llvm::StringMap<llvm::AllocaInst*> allocations;
+    llvm::StringMap<llvm::Value*> allocations;
     llvm::StringMap<llvm::SmallVector<std::unique_ptr<FunStmt>, 256>> funcMap;
     llvm::StringMap<ClassInfo> classMap;
     llvm::StringMap<int> indexMap;
@@ -63,8 +63,8 @@ class Environment {
 
     bool defineVar(llvm::StringRef name, Ty::Type type);
     Ty::Type* getVar(Token name);
-    bool declareAlloca(llvm::StringRef name, llvm::AllocaInst* alloca);
-    llvm::AllocaInst* getAlloca(llvm::StringRef name);
+    bool declareAlloca(llvm::StringRef name, llvm::Value* alloca);
+    llvm::Value* getAlloca(llvm::StringRef name);
     int getIndex(llvm::StringRef name);
     int getIndex(Token name);
     int numVars() { return indexCount; }

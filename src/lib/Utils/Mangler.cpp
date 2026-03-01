@@ -20,4 +20,7 @@ std::string Mangler::mangleStatic() {
 std::string Mangler::mangleType(std::string type) { 
     return std::to_string(type.size()) + type;
 }
+std::string Mangler::mangleVar(std::string name) {
+    return "_" + name;
+}
 

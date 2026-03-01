@@ -9,6 +9,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 
+    add_subdirectory(src/runtime)
+
     add_executable(brain src/driver.cpp)
     target_sources(brain PRIVATE
         src/lib/Utils/Diagnostics.cpp
@@ -21,70 +23,74 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         src/lib/Sema/Sema.cpp
         src/lib/Generator/CodeGen.cpp
     )
+
+    target_compile_definitions(brain PRIVATE
+        BW_RUNTIME_PATH="$<TARGET_FILE:bw_runtime>"
+    )
+
+    add_dependencies(brain bw_runtime)
+
+    find_package(LLVM REQUIRED CONFIG)
+    message("Found LLVM ${LLVM_PACKAGE_VERSION}, build type ${LLVM_BUILD_TYPE}")
+    list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
+
+    separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
+    add_definitions(${LLVM_DEFINITIONS_LIST})
+    target_include_directories(brain PUBLIC ${PROJECT_SOURCE_DIR}/src/include)
+    llvm_map_components_to_libnames(LLVM_LIBS
+        Core
+        Support
+        IRReader
+        Passes
+        Analysis
+        AsmParser
+        AsmPrinter
+        BitReader
+        BitWriter
+        CodeGen
+        InstCombine
+        Instrumentation
+        Interpreter
+        Linker
+        Object
+        Option
+        ProfileData
+        Symbolize
+        ScalarOpts
+        Target
+        TransformUtils
+        Vectorize
+        native
+    )
+
+    #llvm_map_components_to_libnames(LLVM_LIBS
+    #    Core
+    #    Support
+    #    IRReader
+    #    Passes
+    #    Analysis
+    #    AsmParser
+    #    AsmPrinter
+    #    BitReader
+    #    BitWriter
+    #    CodeGen
+    #    InstCombine
+    #    Instrumentation
+    #    Interpreter
+    #    Linker
+    #    Object
+    #    Option
+    #    ProfileData
+    #    Symbolize
+    #    ScalarOpts
+    #    Target
+    #    TransformUtils
+    #    Vectorize
+    #    AllTargetAsmParsers
+    #    AllTargetsCodeGens
+    #    AllTargetsDescs
+    #    AllTargetsInfos
+    #)
+
+    target_link_libraries(brain ${LLVM_LIBS})
 endif()
-
-find_package(LLVM REQUIRED CONFIG)
-message("Found LLVM ${LLVM_PACKAGE_VERSION}, build type ${LLVM_BUILD_TYPE}")
-list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
-
-separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
-add_definitions(${LLVM_DEFINITIONS_LIST})
-target_include_directories(brain PUBLIC ${PROJECT_SOURCE_DIR}/src/include)
-llvm_map_components_to_libnames(LLVM_LIBS
-    Core
-    Support
-    IRReader
-    Passes
-    Analysis
-    AsmParser
-    AsmPrinter
-    BitReader
-    BitWriter
-    CodeGen
-    InstCombine
-    Instrumentation
-    Interpreter
-    Linker
-    Object
-    Option
-    ProfileData
-    Symbolize
-    ScalarOpts
-    Target
-    TransformUtils
-    Vectorize
-    native
-)
-
-#llvm_map_components_to_libnames(LLVM_LIBS
-#    Core
-#    Support
-#    IRReader
-#    Passes
-#    Analysis
-#    AsmParser
-#    AsmPrinter
-#    BitReader
-#    BitWriter
-#    CodeGen
-#    InstCombine
-#    Instrumentation
-#    Interpreter
-#    Linker
-#    Object
-#    Option
-#    ProfileData
-#    Symbolize
-#    ScalarOpts
-#    Target
-#    TransformUtils
-#    Vectorize
-#    AllTargetAsmParsers
-#    AllTargetsCodeGens
-#    AllTargetsDescs
-#    AllTargetsInfos
-#)
-
-target_link_libraries(brain ${LLVM_LIBS})
-
-#add_subdirectory ("src")
