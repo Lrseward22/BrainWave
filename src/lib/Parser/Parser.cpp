@@ -258,11 +258,10 @@ std::unique_ptr<Stmt> Parser::parseRead() {
     llvm::SMLoc loc = Tok.getLocation();
     consume(tok::TokenKind::kw_read);
     expect(tok::TokenKind::IDENTIFIER);
-    Token identifier = Tok;
-    advance();
+    std::unique_ptr<Expr> identifier = parseBaseExpr();
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Read>(identifier, loc);
+    return std::make_unique<Read>(std::move(identifier), loc);
 }
 
 std::unique_ptr<Stmt> Parser::parseReturn() {

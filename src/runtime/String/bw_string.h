@@ -10,6 +10,7 @@ typedef struct {
     char* data;
 } bw_String;
 
+void bw_string_free(bw_String* s);
 bw_String bw_string_from_cstr(const char* cstr);
 int32_t bw_string_length(const bw_String* s);
 bw_String bw_string_concat(const bw_String* a, const bw_String* b);

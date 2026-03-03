@@ -34,6 +34,8 @@ DIAG(err_var_mismatch,          Error, "Cannot assign value of type {0} to L-Val
 DIAG(err_fun_call,              Error, "No matching function to call for {0} function")
 DIAG(err_bad_return_type,       Error, "Function returns type {0} not {1}")
 DIAG(err_bad_cast_typing,       Error, "{0} cannot be cast to {1}")
+DIAG(err_read_type,             Error, "Cannot read into variable {0} of type {1}")
+DIAG(err_invalid_read_expr,     Error, "Can only read into variables")
 DIAG(err_bad_condition,         Error, "Condition of {0} statement must be a boolean")
 DIAG(err_ret_outside_function,  Error, "Illegal return outside of a function")
 DIAG(err_brk_outside_loop,      Error, "Illegal break outside of a loop")

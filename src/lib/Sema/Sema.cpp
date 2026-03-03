@@ -81,8 +81,12 @@ public:
         stmt.env = currEnv;
         popEnv();
     };
-    virtual void visit(Print &stmt) override { };
-    virtual void visit(Read &stmt) override { };
+    virtual void visit(Print &stmt) override {
+        stmt.getExpr()->accept(*this);
+    };
+    virtual void visit(Read &stmt) override {
+        stmt.getIdentifier()->accept(*this);
+    };
     virtual void visit(Return &stmt) override { };
     virtual void visit(Break &stmt) override { };
     virtual void visit(Continue &stmt) override { };
@@ -228,6 +232,7 @@ class TypeChecker : public ASTVisitor{
     Ty::Type FunType;
     std::unique_ptr<Expr> ResolvedLeft;
     std::unique_ptr<Expr> ResolvedRight;
+    bool inPrint = false;
 
     void resolveTypes(std::unique_ptr<Expr> lhs, std::unique_ptr<Expr> rhs, Token op) {
         lhs->accept(*this);
@@ -244,7 +249,10 @@ class TypeChecker : public ASTVisitor{
         else if (Ty::equals(lType, rType)) {
         } else if (resolve(lType, rType))
             rhs = std::make_unique<Cast>(std::move(rhs), lType);
-        else
+        else if (inPrint) {
+            lhs = std::make_unique<Cast>(std::move(lhs), Ty::Type("string"));
+            rhs = std::make_unique<Cast>(std::move(rhs), Ty::Type("string"));
+        } else
             lhs = std::make_unique<Cast>(std::move(lhs), rType);
 
         ResolvedLeft = std::move(lhs);
@@ -565,7 +573,7 @@ public:
         expr.getExpr()->accept(*this);
         Ty::Type type = Value;
         Value = expr.getType();
-        if (!type.isCastable() || !Value.isCastable())
+        if (!Value.is(Ty::TypeKind::String) || (Value.isNumeric() && type.isNumeric()))
                 Diag.report(expr.getLoc(),
                     diag::err_bad_cast_typing,
                     type.get(), expr.getType().get());
@@ -580,9 +588,25 @@ public:
         env = prev;
     };
     virtual void visit(Print &stmt) override { 
+        inPrint = true;
         stmt.getExpr()->accept(*this);
+        if (!stmt.getExpr()->getType().is(Ty::TypeKind::String))
+            stmt.setExpr(std::make_unique<Cast>(std::move(stmt.getUniqueExpr()), Ty::Type("string")));
+        inPrint = false;
     };
-    virtual void visit(Read &stmt) override { };
+    virtual void visit(Read &stmt) override {
+        if (Variable* var = llvm::dyn_cast<Variable>(stmt.getIdentifier())) {
+            var->accept(*this);
+            if (Value.isPrimitive() || Value.is(Ty::TypeKind::String))
+                stmt.setType(Value);
+            else
+                Diag.report(stmt.getLoc(),
+                        diag::err_read_type,
+                        var->getData(), var->getType().get());
+        } else
+            Diag.report(stmt.getLoc(),
+                diag::err_invalid_read_expr);
+    };
     virtual void visit(Return &stmt) override { 
         if (stmt.getExpr())
             stmt.getExpr()->accept(*this);
@@ -792,10 +816,7 @@ public:
         stmt.getExpr()->accept(*this);
     };
     virtual void visit(Read &stmt) override {
-        if (!env->getVar(stmt.getIdentifier()))
-            Diag.report(stmt.getIdentifier().getLocation(),
-                        diag::err_iden_undeclared, 
-                        stmt.getIdentifier().getIdentifier());
+        stmt.getIdentifier()->accept(*this);
     };
     virtual void visit(Return &stmt) override { 
         if (stmt.getExpr())
@@ -1297,6 +1318,7 @@ public:
         }
     };
     virtual void visit(Read &stmt) override {
+        stmt.getIdentifier()->accept(*this);
     };
     virtual void visit(Return &stmt) override {
         if (stmt.getExpr()) {

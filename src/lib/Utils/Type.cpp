@@ -51,6 +51,9 @@ bool Ty::Type::is(TypeKind K) const {
 bool Ty::Type::isNumeric() const { 
     return is(TypeKind::Numeric); 
 }
+bool Ty::Type::isPrimitive() const { 
+    return is(TypeKind::Bool) || is(TypeKind::Numeric); 
+}
 bool Ty::Type::isUserDefined() const {
     return is(TypeKind::UserDefined);
 }
@@ -68,16 +71,19 @@ bool Ty::equals(const Type& t1, const Type& t2) {
     return (t1.get() == t2.get());
 }
 bool Ty::resolvable(const Type& t1, const Type& t2) {
-    return ((t1.isNumeric() && t2.isNumeric())
+    return (t1.is(TypeKind::String) || t2.is(TypeKind::String) 
+            || (t1.isNumeric() && t2.isNumeric())
             || equals(t1, t2));
 }
 bool Ty::resolve(const Type& t1, const Type& t2) {
-    assert((t1.isNumeric() && t2.isNumeric()) && 
+    assert(t1.is(TypeKind::String) || t2.is(TypeKind::String) ||
+            (t1.isNumeric() && t2.isNumeric()) && 
             "Cannot resolve types of non-resolvables");
     llvm::StringRef type1 = t1.get();
     llvm::StringRef type2 = t2.get();
-    if ((type1 == "int" && (type2 == "float" || type2 == "double")) ||
-        (type1 == "float" && type2 == "double"))
+    if (type1 == "string"
+        ||(type1 == "int" && (type2 == "float" || type2 == "double"))
+        || (type1 == "float" && type2 == "double"))
         return true;
     else return false;
 }

@@ -79,6 +79,54 @@ class IRVisitor : public ASTVisitor {
             declareMethod(name, I32, {StringPtrTy, StringPtrTy});
     }
 
+    void declareCastRuntime() {
+        LLVMContext& Ctx = M->getContext();
+        Type* Bool = Type::getInt1Ty(Ctx);
+        Type* I32 = Type::getInt32Ty(Ctx);
+        Type* Float = Type::getFloatTy(Ctx);
+        Type* Double = Type::getDoubleTy(Ctx);
+        Type* I8Ptr = Type::getInt8PtrTy(Ctx);
+        Type* StringTy = mapType(Ty::Type("string"));
+
+        PointerType* StringPtrTy = PointerType::get(StringTy, 0);
+
+        // Define methods
+        declareMethod("to_bool", Bool, {StringTy});
+        declareMethod("to_int", I32, {StringTy});
+        declareMethod("to_float", Float, {StringTy});
+        declareMethod("to_double", Double, {StringTy});
+        declareMethod("to_string_from_bool", StringTy, {Bool});
+        declareMethod("to_string_from_int", StringTy, {I32});
+        declareMethod("to_string_from_float", StringTy, {Float});
+        declareMethod("to_string_from_double", StringTy, {Double});
+        declareMethod("to_string_from_Class", StringTy, {StringTy, I8Ptr});
+    }
+
+    void declareIORuntime() {
+        LLVMContext& Ctx = M->getContext();
+        Type* Bool = Type::getInt1Ty(Ctx);
+        Type* I32 = Type::getInt32Ty(Ctx);
+        Type* Float = Type::getFloatTy(Ctx);
+        Type* Double = Type::getDoubleTy(Ctx);
+        Type* I8Ptr = Type::getInt8PtrTy(Ctx);
+        Type* Void = Type::getVoidTy(Ctx);
+        Type* StringTy = mapType(Ty::Type("string"));
+
+        PointerType* BoolPtr = PointerType::get(Bool, 0);
+        PointerType* I32Ptr = PointerType::get(I32, 0);
+        PointerType* FloatPtr = PointerType::get(Float, 0);
+        PointerType* DoublePtr = PointerType::get(Double, 0);
+        PointerType* StringPtrTy = PointerType::get(StringTy, 0);
+
+        // Define methods
+        declareMethod("bw_print", Void, {StringPtrTy});
+        declareMethod("read_bool", Void, {BoolPtr});
+        declareMethod("read_int", Void, {I32Ptr});
+        declareMethod("read_float", Void, {FloatPtr});
+        declareMethod("read_double", Void, {DoublePtr});
+        declareMethod("read_string", Void, {StringPtrTy});
+    }
+
     AllocaInst* storeBuiltIntoAlloca(Value* val, Ty::Type t) {
         Type* Ty = mapType(t);
         AllocaInst* alloca = Builder.CreateAlloca(Ty, nullptr, "tmp");
@@ -96,6 +144,8 @@ public:
         PtrTy = Type::getInt8PtrTy(M->getContext());
 
         declareStringRuntime();
+        declareCastRuntime();
+        declareIORuntime();
     }
 
     void createMain() {
@@ -422,16 +472,67 @@ public:
         expr.getExpr()->accept(*this);
         Ty::Type fromType = expr.getExpr()->getType();
         Ty::Type toType = expr.getType();
-        if (toType.get() == "int")
-            V = Builder.CreateFPToSI(V, mapType(Ty::Type("int")));
-        else if (toType.get() == "float") {
+        if (toType.get() == "int") {
+            if (fromType.isNumeric())
+                V = Builder.CreateFPToSI(V, mapType(Ty::Type("int")));
+            else {
+                llvm::SmallVector<Value*, 256> params;
+                Function* callee = M->getFunction("to_int");
+                params.push_back(V);
+                V = Builder.CreateCall(callee, params);
+            }
+        } else if (toType.get() == "float") {
             if (fromType.get() == "int")
                 V = Builder.CreateSIToFP(V, mapType(Ty::Type("float")));
-            else V = Builder.CreateFPCast(V, mapType(Ty::Type("float")));
+            else if (fromType.get() == "double")
+                V = Builder.CreateFPCast(V, mapType(Ty::Type("float")));
+            else {
+                llvm::SmallVector<Value*, 256> params;
+                Function* callee = M->getFunction("to_float");
+                params.push_back(V);
+                V = Builder.CreateCall(callee, params);
+            }
         } else if (toType.get() == "double") {
             if (fromType.get() == "int")
                 V = Builder.CreateSIToFP(V, mapType(Ty::Type("double")));
-            else V = Builder.CreateFPCast(V, mapType(Ty::Type("double")));
+            else if (fromType.get() == "float")
+                V = Builder.CreateFPCast(V, mapType(Ty::Type("double")));
+            else {
+                llvm::SmallVector<Value*, 256> params;
+                Function* callee = M->getFunction("to_double");
+                params.push_back(V);
+                V = Builder.CreateCall(callee, params);
+            }
+        } else if (toType.get() == "bool") {
+            llvm::SmallVector<Value*, 256> params;
+            Function* callee = M->getFunction("to_bool");
+            params.push_back(V);
+            V = Builder.CreateCall(callee, params);
+        } else if (toType.get() == "string") {
+            llvm::SmallVector<Value*, 256> params;
+            params.push_back(V);
+            if (fromType.get() == "int") {
+                Function* callee = M->getFunction("to_string_from_int");
+                V = Builder.CreateCall(callee, params);
+            } else if (fromType.get() == "float") {
+                Function* callee = M->getFunction("to_string_from_float");
+                V = Builder.CreateCall(callee, params);
+            } else if (fromType.get() == "double") {
+                Function* callee = M->getFunction("to_string_from_double");
+                V = Builder.CreateCall(callee, params);
+            } else if (fromType.get() == "bool") {
+                Function* callee = M->getFunction("to_string_from_bool");
+                V = Builder.CreateCall(callee, params);
+            } else if (fromType.isUserDefined()) {
+                // Figure out how to cast user defined types to strings
+                /*
+                params.clear();
+                params.push_back();
+                params.push_back(V);
+                Function* callee = M->getFunction("to_string_from_Class");
+                V = Builder.CreateCall(callee, params);
+                */
+            }
         }
     };
 
@@ -446,10 +547,33 @@ public:
     };
     virtual void visit(Print &stmt) override {
         stmt.getExpr()->accept(*this);
-        // FIXME: Runtime function calls for each type
+        AllocaInst* strPtr = storeBuiltIntoAlloca(V, Ty::Type("string"));
+        llvm::SmallVector<Value*, 256> params;
+        Function* callee = M->getFunction("bw_print");
+        params.push_back(strPtr);
+        V = Builder.CreateCall(callee, params);
     };
     virtual void visit(Read &stmt) override {
-        // FIXME: Runtime function calls for each type
+        Ty::Type T = stmt.getType();
+        llvm::SmallVector<Value*, 256> params;
+        bool prevMode = AddressMode;
+        AddressMode = true;
+        stmt.getIdentifier()->accept(*this);
+        params.push_back(V);
+        Function* callee;
+        if (T.is(Ty::TypeKind::Bool))
+            callee = M->getFunction("read_bool");
+        else if (T.get() == "int")
+            callee = M->getFunction("read_int");
+        else if (T.get() == "float")
+            callee = M->getFunction("read_float");
+        else if (T.get() == "double")
+            callee = M->getFunction("read_double");
+        else if (T.is(Ty::TypeKind::String))
+            callee = M->getFunction("read_string");
+        V = Builder.CreateCall(callee, params);
+        AddressMode = prevMode;
+
     };
     virtual void visit(Return &stmt) override {
         if (stmt.getExpr()) {

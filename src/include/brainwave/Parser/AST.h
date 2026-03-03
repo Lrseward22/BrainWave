@@ -467,6 +467,7 @@ class Print : public Stmt {
         Print(std::unique_ptr<Expr> expr, llvm::SMLoc loc)
             : Stmt(StmtKind), expr(std::move(expr)), loc(loc) {}
         Expr* getExpr() { return expr.get(); }
+        std::unique_ptr<Expr> getUniqueExpr() { return std::move(expr); }
         void setExpr(std::unique_ptr<Expr> e) { expr = std::move(e); }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
@@ -482,13 +483,16 @@ class Print : public Stmt {
 };
 
 class Read : public Stmt {
-    Token identifier;
+    std::unique_ptr<Expr> identifier;
+    Ty::Type type;
     llvm::SMLoc loc;
 
     public:
-        Read(const Token& identifier, llvm::SMLoc loc)
-            : Stmt(StmtKind), identifier(identifier), loc(loc) {}
-        Token getIdentifier() { return identifier; }
+        Read(std::unique_ptr<Expr> identifier, llvm::SMLoc loc)
+            : Stmt(StmtKind), identifier(std::move(identifier)), loc(loc) {}
+        Expr* getIdentifier() { return identifier.get(); }
+        Ty::Type getType() { return type; }
+        void setType(Ty::Type T) { type = T; }
         llvm::SMLoc getLoc() { return loc; }
         virtual void accept(ASTVisitor &V) override {
             V.visit(*this);
@@ -497,7 +501,9 @@ class Read : public Stmt {
             return A->getKind() == StmtKind;
         }
         virtual void print(int indent = 0) override {
-            std::cout << std::string(indent, ' ') << "Read: " << identifier.getLexeme().str() << std::endl;
+            std::cout << std::string(indent, ' ') << "Read: ";
+            if (identifier) identifier->print(indent + 2);
+            std::cout << std::endl;
         }
 };
 

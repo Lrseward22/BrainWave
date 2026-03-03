@@ -1,5 +1,7 @@
 add_library(bw_runtime STATIC
+    Cast/cast.c
     String/string.c
+    IO/IO.c
     # Array/array.c
     # Math/math.c ...
 )

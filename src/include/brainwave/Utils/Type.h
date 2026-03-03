@@ -49,6 +49,7 @@ namespace brainwave {
 
             bool is(TypeKind K) const;
             bool isNumeric() const;
+            bool isPrimitive() const;
             bool isUserDefined() const;
             bool isCastable() const;
             llvm::StringRef get() const;
