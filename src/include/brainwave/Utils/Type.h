@@ -34,6 +34,7 @@ namespace brainwave {
         class Type {
             std::string name;
             TypeKind Kind;
+            Type* inner;
 
         public:
             Type() : name("void"), Kind(TypeKind::Void) { }
@@ -46,7 +47,13 @@ namespace brainwave {
             Type(const std::string& name) : name(name) {
                 Kind = getTypeKind(this->name);
             }
+            Type(const std::string& name, Type* inner)
+                : name(name), inner(inner) {
+                    Kind = getTypeKind(this->name);
+            }
 
+            Type* getInner() const { return inner; }
+            bool isParameterizes() const { return inner != nullptr; }
             bool is(TypeKind K) const;
             bool isNumeric() const;
             bool isPrimitive() const;
@@ -65,12 +72,13 @@ namespace brainwave {
             }
         };
 
-        bool equals(const Type& t1, const Type& t2);
-        bool resolvable(const Type& t1, const Type& t2);
-        bool resolve(const Type& t1, const Type& t2);
+        bool equals(Type* t1, Type* t2);
+        bool resolvable(Type* t1, Type* t2);
+        bool resolve(Type* t1, Type* t2);
     }
 }
 
+/*
 namespace llvm {
     template<>
     struct DenseMapInfo<brainwave::Ty::Type> {
@@ -97,5 +105,6 @@ namespace llvm {
         }
     };
 }
+*/
 
 #endif

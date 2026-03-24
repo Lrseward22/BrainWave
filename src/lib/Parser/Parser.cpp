@@ -125,11 +125,10 @@ std::unique_ptr<Expr> Parser::parseUnary() {
 
 std::unique_ptr<Expr> Parser::parseCast() {
     if (Ty::isDefined(Tok.getLexeme()) && Ty::isCastable(Tok.getLexeme())) {
-        Ty::Type type(Tok.getLexeme());
-        advance();
+        std::unique_ptr<Expr> type = parseTypeExpr();
         consume(tok::TokenKind::L_PAREN);
         llvm::SMLoc loc = Tok.getLocation();
-        std::unique_ptr<Expr> expr = std::make_unique<Cast>(parseLogical(), type, loc);
+        std::unique_ptr<Expr> expr = std::make_unique<Cast>(parseLogical(), std::move(type), loc);
         consume(tok::TokenKind::R_PAREN);
         return expr;
     } else
@@ -194,6 +193,20 @@ std::unique_ptr<Expr> Parser::parseFunExpr(Token identifier) {
 
     consume(tok::TokenKind::R_PAREN);
     return std::make_unique<FunExpr>(identifier, params);
+}
+
+std::unique_ptr<TypeExpr> Parser::parseTypeExpr() {
+    Token type = Tok;
+    advance();
+    std::unique_ptr<TypeExpr> child = nullptr;
+    if (!type.is(tok::TokenKind::IDENTIFIER) && match(tok::TokenKind::LESS))
+        PrimitiveContainerError();
+    else if (match(tok::TokenKind::LESS)) {
+        consume(tok::TokenKind::LESS);
+        child = parseTypeExpr();
+        consume(tok::TokenKind::GREATER);
+    }
+    return std::make_unique<TypeExpr>(type, std::move(child));
 }
 
 // STATEMENTS
@@ -368,16 +381,15 @@ std::unique_ptr<Stmt> Parser::parseFunStmt() {
 
     consume(tok::TokenKind::R_PAREN);
     consume(tok::TokenKind::ARROW);
-    Token type;
+    std::unique_ptr<Expr> type;
     if (Ty::isDefined(Tok.getLexeme()))
-        type = Tok;
+        type = parseTypeExpr();
     else
         FunReturnError();
 
-    advance();
     std::unique_ptr<Stmt> body = parseStmt();
     
-    return std::make_unique<FunStmt>(identifier, std::move(params), type, std::move(body), loc, isStatic);
+    return std::make_unique<FunStmt>(identifier, std::move(params), std::move(type), std::move(body), loc, isStatic);
 }
 
 // Only the second option from Grammar
@@ -446,18 +458,16 @@ std::unique_ptr<Stmt> Parser::parseImport() {
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclare() {
-    Token type = Tok;
-    advance();
+    std::unique_ptr<TypeExpr> type = parseTypeExpr();
     expect(tok::TokenKind::IDENTIFIER);
     std::unique_ptr<Expr> iden = std::make_unique<Variable>(Tok);
     advance();
     bool isStatic = false;
-    return std::make_unique<Declare>(type, std::move(iden), isStatic);
+    return std::make_unique<Declare>(std::move(type), std::move(iden), isStatic);
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
-    Token type = Tok;
-    advance();
+    std::unique_ptr<TypeExpr> type = parseTypeExpr();
     expect(tok::TokenKind::IDENTIFIER);
     tok::TokenKind lookAhead = peek();
     std::unique_ptr<Expr> expr;
@@ -471,7 +481,7 @@ std::unique_ptr<Stmt> Parser::parseDeclareStmt() {
     }
     panic();
     consume(tok::TokenKind::SEMI);
-    return std::make_unique<Declare>(type, std::move(expr), isStatic);
+    return std::make_unique<Declare>(std::move(type), std::move(expr), isStatic);
 }
 
 std::unique_ptr<Stmt> Parser::parseExprStmt() {

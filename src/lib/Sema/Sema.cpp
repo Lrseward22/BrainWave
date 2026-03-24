@@ -4,6 +4,10 @@
 
 using namespace brainwave;
 
+// FIXME: Types get messed up
+//        Variable initially of type Point gets shown as type 
+//        int when put into a function expression as a parameter
+
 namespace {
 class EnvCreation : public ASTVisitor{
     // Creates environments:
@@ -11,12 +15,13 @@ class EnvCreation : public ASTVisitor{
     //      Defines declared Functions
     //      Defines declared Classes
     //      Creates Scopes
+    Sema& S;
     brainwave::DiagnosticsEngine &Diag;
     llvm::SmallVector<std::unique_ptr<Environment>, 256>* envs;
     Environment* baseEnv;
     Environment* currEnv;
     llvm::SmallVector<Token, 256> idens;
-    Ty::Type classType;
+    Ty::Type* classType;
     bool inClass = false;
 
     void pushEnv(EnvKind kind) {
@@ -30,8 +35,8 @@ class EnvCreation : public ASTVisitor{
     }
 
 public:
-    EnvCreation(brainwave::DiagnosticsEngine &Diag, llvm::SmallVector<std::unique_ptr<Environment>, 256>* envs)
-        : Diag(Diag), envs(envs) { }
+    EnvCreation(Sema& S, brainwave::DiagnosticsEngine &Diag, llvm::SmallVector<std::unique_ptr<Environment>, 256>* envs)
+        : S(S), Diag(Diag), envs(envs) { }
 
     void run(AST* Tree, Environment* base) {
         baseEnv = base;
@@ -70,6 +75,7 @@ public:
     virtual void visit(Cast &expr) override {
         expr.getExpr()->accept(*this);
     };
+    virtual void visit(TypeExpr &expr) override { };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
@@ -136,6 +142,7 @@ public:
             bool isStatic = false;
             Token thisToken = Token(thisStr, 4, tok::TokenKind::kw_this);
             std::unique_ptr<Expr> thisVar = std::make_unique<Variable>(thisToken);
+            thisVar->setType(classType);
             thisParam = std::make_unique<Declare>(classType, std::move(thisVar), isStatic, stmt.getLoc());
             stmt.insertParamFront(std::move(thisParam));
 
@@ -156,7 +163,8 @@ public:
     virtual void visit(ClassStmt &stmt) override { 
         // Register class identifier in Type table
         Ty::declareType(stmt.getIdentifier().getIdentifier());
-        classType = Ty::Type(stmt.getIdentifier().getIdentifier());
+        Ty::Type cType = Ty::Type(stmt.getIdentifier().getIdentifier());
+        classType = S.internType(stmt.getIdentifier().getIdentifier(), cType);
 
         pushEnv(EnvKind::Class);
         inClass = true;
@@ -166,7 +174,7 @@ public:
             f->accept(*this);
         for (auto& c : stmt.getConstructors()) {
             c->accept(*this);
-            c->setType(Ty::Type(stmt.getIdentifier().getIdentifier()));
+            c->setType(classType);
             llvm::StringRef funcName = c->getIdentifier().getIdentifier();
             currEnv->attachFunc(funcName, std::move(c));
         } for (auto& m : stmt.getMethods()) {
@@ -195,20 +203,13 @@ public:
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override { 
         idens.clear();
-        Ty::Type type = stmt.getType();
-        if (!Ty::equals(type, Ty::Type("void")) && type.is(Ty::TypeKind::Void)) {
-            type.setKind(Ty::TypeKind::UserDefined);
-            stmt.setType(type);
-        }
         stmt.getExpr()->accept(*this);
-        if (type.is(Ty::TypeKind::Void)) {
-            for (auto& iden : idens)
-                Diag.report(iden.getLocation(),
-                            diag::err_void_iden,
-                            iden.getIdentifier());
-        }
         for (auto& iden : idens) {
-            if (currEnv->defineVar(iden.getIdentifier(), type))
+            bool redecl;
+            if (stmt.getTypeExpr())
+                redecl = currEnv->defineVar(iden.getLexeme(), stmt.getTypeExpr());
+            else redecl = currEnv->defineVar(iden.getLexeme(), stmt.getType());
+            if (redecl)
                 Diag.report(iden.getLocation(), 
                             diag::err_iden_redeclaration, 
                             iden.getIdentifier());
@@ -219,39 +220,44 @@ public:
     };
 };
 
-class TypeChecker : public ASTVisitor{
+class TypeChecker : public ASTVisitor {
     // Detects:
     //      Expression types matching
     //      Operator types match
     //      Function call parameter types match declaration types
     //      Return statement types match
     //      Assignments match variable types
+    Sema& S;
     brainwave::DiagnosticsEngine &Diag;
+    llvm::SmallVector<Token, 256> idens;
     Environment* env;
-    Ty::Type Value;
-    Ty::Type FunType;
+    Ty::Type* Value;
+    Ty::Type* FunType;
     std::unique_ptr<Expr> ResolvedLeft;
     std::unique_ptr<Expr> ResolvedRight;
     bool inPrint = false;
+    bool declareMode = false;
+    Ty::Type* declaredType;
 
     void resolveTypes(std::unique_ptr<Expr> lhs, std::unique_ptr<Expr> rhs, Token op) {
         lhs->accept(*this);
         lhs->setType(Value);
-        Ty::Type lType = Value;
+        Ty::Type* lType = Value;
         rhs->accept(*this);
         rhs->setType(Value);
-        Ty::Type rType = Value;
+        Ty::Type* rType = Value;
 
         if (!Ty::resolvable(lType, rType))
             Diag.report(op.getLocation(),
                         diag::err_bin_op_mismatch, 
-                        op.getLexeme(), lType.get(), rType.get());
+                        op.getLexeme(), lType->get(), rType->get());
         else if (Ty::equals(lType, rType)) {
         } else if (resolve(lType, rType))
             rhs = std::make_unique<Cast>(std::move(rhs), lType);
         else if (inPrint) {
-            lhs = std::make_unique<Cast>(std::move(lhs), Ty::Type("string"));
-            rhs = std::make_unique<Cast>(std::move(rhs), Ty::Type("string"));
+            Ty::Type* strType = S.getType("string");
+            lhs = std::make_unique<Cast>(std::move(lhs), strType);
+            rhs = std::make_unique<Cast>(std::move(rhs), strType);
         } else
             lhs = std::make_unique<Cast>(std::move(lhs), rType);
 
@@ -279,6 +285,9 @@ class TypeChecker : public ASTVisitor{
             return false;
         }
         for (size_t i = startIndex; i < funcParams.size(); ++i) {
+            Ty::Type* fp = funcParams[i]->getType();
+            Ty::Type* ep = exprParams[i-startIndex]->getType();
+
             if (!Ty::equals(funcParams[i]->getType(), exprParams[i - startIndex]->getType()))
                 return false;
         }
@@ -304,8 +313,8 @@ class TypeChecker : public ASTVisitor{
             bool skipFirstParam = false) {
         size_t startIndex = skipFirstParam ? 1 : 0;
         for (size_t i = startIndex; i < funcParams.size(); ++i) {
-            Ty::Type paramType = funcParams[i]->getType();
-            Ty::Type argType = exprParams[i - startIndex]->getType();
+            Ty::Type* paramType = funcParams[i]->getType();
+            Ty::Type* argType = exprParams[i - startIndex]->getType();
 
             if (!Ty::equals(paramType, argType) && Ty::resolvable(paramType, argType))
                 exprParams[i - startIndex] = 
@@ -314,7 +323,7 @@ class TypeChecker : public ASTVisitor{
     }
 
 public:
-    TypeChecker(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
+    TypeChecker(Sema& S, brainwave::DiagnosticsEngine &Diag) : S(S), Diag(Diag) { }
 
     void run(AST* Tree, Environment* e) {
         env = e;
@@ -329,7 +338,7 @@ public:
             expr.setRight(std::move(ResolvedRight));
             Value = expr.getLeft()->getType();
             expr.setType(Value);
-            if (Value.is(Ty::TypeKind::Void)) {
+            if (Value->is(Ty::TypeKind::Void)) {
                 Diag.report(expr.getOp().getLocation(),
                             diag::err_void_in_expr);
                 return;
@@ -338,25 +347,25 @@ public:
 
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUS:
-                if (!Value.isNumeric() && !Value.is(Ty::TypeKind::String))
+                if (!Value->isNumeric() && !Value->is(Ty::TypeKind::String))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), Value.get(), Value.get());
+                                expr.getOp().getLexeme(), Value->get(), Value->get());
                 break;
             case tok::TokenKind::MINUS:
             case tok::TokenKind::STAR:
             case tok::TokenKind::SLASH:
             case tok::TokenKind::CARET:
-                if (!Value.isNumeric())
+                if (!Value->isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), Value.get(), Value.get());
+                                expr.getOp().getLexeme(), Value->get(), Value->get());
                 break;
             case tok::TokenKind::PERCENT:
-                if (Value.get() != "int")
+                if (Value->get() != "int")
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), Value.get(), Value.get());
+                                expr.getOp().getLexeme(), Value->get(), Value->get());
                 break;
             case tok::TokenKind::EQ:
             case tok::TokenKind::NEQ:
@@ -364,24 +373,24 @@ public:
             case tok::TokenKind::LEQ:
             case tok::TokenKind::GREATER:
             case tok::TokenKind::GEQ:
-                Value = Ty::Type("bool");
+                Value = S.getType("bool");
                 break;
             case tok::TokenKind::PERIOD:
                 expr.getLeft()->accept(*this);
                 expr.getLeft()->setType(Value);
-                Ty::Type lType = Value;
+                Ty::Type* lType = Value;
 
                 Environment* prev = env;
-                Environment* classEnv = env->getClass(lType.get());
+                Environment* classEnv = env->getClass(lType->get());
 
-                if (lType.is(Ty::TypeKind::Void) ||
-                        lType.isNumeric() ||
-                        lType.is(Ty::TypeKind::Bool) ||
+                if (lType->is(Ty::TypeKind::Void) ||
+                        lType->isNumeric() ||
+                        lType->is(Ty::TypeKind::Bool) ||
                         !classEnv) {
                     Diag.report(expr.getOp().getLocation(),
                             diag::err_dot_op_obj,
-                            lType.get());
-                    Value = Ty::Type("void");
+                            lType->get());
+                    Value = S.getType("void");
                     expr.setType(Value);
                     break;
                 }
@@ -400,16 +409,16 @@ public:
         expr.setType(Value);
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::BANG:
-                if (!Value.is(Ty::TypeKind::Bool))
+                if (!Value->is(Ty::TypeKind::Bool))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
-                                expr.getOp().getLexeme(), Value.get());
+                                expr.getOp().getLexeme(), Value->get());
                 break;
             case tok::TokenKind::MINUS:
-                if (!Value.isNumeric())
+                if (!Value->isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
-                                expr.getOp().getLexeme(), Value.get());
+                                expr.getOp().getLexeme(), Value->get());
                 break;
             case tok::TokenKind::PLUSPLUS:
             case tok::TokenKind::MINUSMINUS:
@@ -418,10 +427,10 @@ public:
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_assign_bad_operand,
                                 expr.getOp().getLexeme());
-                if (!Value.isNumeric())
+                if (!Value->isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_una_op_mismatch, 
-                                expr.getOp().getLexeme(), Value.get());
+                                expr.getOp().getLexeme(), Value->get());
                 break;
         }
     };
@@ -432,67 +441,72 @@ public:
     virtual void visit(Literal &expr) override {
         switch (expr.getTok().getKind()) {
             case tok::TokenKind::INTEGER_LITERAL:
-                Value = Ty::Type("int");
+                Value = S.getType("int");
                 break;
             case tok::TokenKind::FLOAT_LITERAL:
-                Value = Ty::Type("double");
+                Value = S.getType("double");
                 break;
             case tok::TokenKind::STRING_LITERAL:
-                Value = Ty::Type("string");
+                Value = S.getType("string");
                 break;
             case tok::TokenKind::kw_true:
             case tok::TokenKind::kw_false:
-                Value = Ty::Type("bool");
+                Value = S.getType("bool");
                 break;
         }
         expr.setType(Value);
     };
     virtual void visit(Variable &expr) override {
-        if (env->getVar(expr.getIdentifier()))
-            Value = *env->getVar(expr.getIdentifier());
-        else if (Ty::isDefined(expr.getIdentifier().getIdentifier()))
-            Value = Ty::Type(expr.getIdentifier().getIdentifier());
-        else Value = Ty::Type("void");
-        expr.setType(Value);
+        if (declareMode) {
+            idens.push_back(expr.getIdentifier());
+            expr.setType(declaredType);
+        } else {
+            if (env->getVar(expr.getIdentifier()))
+                Value = env->getVar(expr.getIdentifier());
+            else if (Ty::isDefined(expr.getIdentifier().getIdentifier()))
+                Value = S.getType(expr.getIdentifier().getIdentifier());
+            else Value = S.getType("void");
+            expr.setType(Value);
+        }
     };
     virtual void visit(Logical &expr) override {
         resolveTypes(expr.getLeftUnique(), expr.getRightUnique(), expr.getOp());
         expr.setLeft(std::move(ResolvedLeft));
         expr.setRight(std::move(ResolvedRight));
-        if (!Value.is(Ty::TypeKind::Bool))
+        if (!Value->is(Ty::TypeKind::Bool))
             Diag.report(expr.getOp().getLocation(),
                         diag::err_bin_op_mismatch, 
-                        expr.getOp().getLexeme(), Value.get(), Value.get());
-        Value = Ty::Type("bool");
+                        expr.getOp().getLexeme(), Value->get(), Value->get());
+        Value = S.getType("bool");
         expr.setType(Value);
     };
     virtual void visit(Assign &expr) override {
         expr.getLHS()->accept(*this);
-        Ty::Type LType = Value;
+        Ty::Type* LType = Value;
         expr.getRHS()->accept(*this);
-        if (!Ty::equals(LType, Value) || Value.is(Ty::TypeKind::Void)) {
-            if (LType.isCastable() && Value.isCastable())
+        if (!Ty::equals(LType, Value) || Value->is(Ty::TypeKind::Void)) {
+            if (LType->isCastable() && Value->isCastable())
                 expr.setRHS(std::make_unique<Cast>(std::move(expr.getRHSUnique()), LType));
-            else if (Value.is(Ty::TypeKind::Void))
+            else if (Value->is(Ty::TypeKind::Void))
                 Diag.report(expr.getOp().getLocation(),
                             diag::err_void_assignment);
             else
                 Diag.report(expr.getOp().getLocation(),
                             diag::err_var_mismatch,
-                            Value.get(), LType.get());
+                            Value->get(), LType->get());
         }
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUSEQUAL:
-                if (!Value.isNumeric() && !Value.is(Ty::TypeKind::String))
+                if (!Value->isNumeric() && !Value->is(Ty::TypeKind::String))
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), LType.get(), Value.get());
+                                expr.getOp().getLexeme(), LType->get(), Value->get());
                 break;
             case tok::TokenKind::MINUSEQUAL:
-                if (!Value.isNumeric())
+                if (!Value->isNumeric())
                     Diag.report(expr.getOp().getLocation(),
                                 diag::err_bin_op_mismatch, 
-                                expr.getOp().getLexeme(), LType.get(), Value.get());
+                                expr.getOp().getLexeme(), LType->get(), Value->get());
                 break;
         }
         Value = LType;
@@ -563,7 +577,7 @@ public:
                 for (auto& func : *candidates)
                     if (func) Diag.report(func->getLoc(), diag::note_fun_declared_here);
             }
-            Value = Ty::Type("void");
+            Value = S.getType("void");
         }
 
         expr.setType(Value);
@@ -571,12 +585,33 @@ public:
     virtual void visit(Cast &expr) override {
         // Make sure both types are primitive or Strings
         expr.getExpr()->accept(*this);
-        Ty::Type type = Value;
+        Ty::Type* type = Value;
         Value = expr.getType();
-        if (!Value.is(Ty::TypeKind::String) || (Value.isNumeric() && type.isNumeric()))
+        if (!Value->is(Ty::TypeKind::String) || (Value->isNumeric() && type->isNumeric()))
                 Diag.report(expr.getLoc(),
                     diag::err_bad_cast_typing,
-                    type.get(), expr.getType().get());
+                    type->get(), expr.getType()->get());
+    };
+    virtual void visit(TypeExpr &expr) override {
+        Ty::Type* innerType = nullptr;
+        if (TypeExpr* child = expr.getChild()) {
+            child->accept(*this);
+            innerType = Value;
+        }
+
+        std::string canonical = expr.getCanonical();
+        Value = S.getType(canonical);
+        if (!Value) {
+            Ty::Type outerType(canonical, innerType);
+            Value = S.internType(canonical, outerType);
+        }
+
+        if (Value == nullptr)
+            Diag.report(expr.getLocation(),
+                    diag::err_no_type,
+                    expr.getCanonical());
+
+        expr.setType(Value);
     };
 
     // Statement ASTs
@@ -590,19 +625,19 @@ public:
     virtual void visit(Print &stmt) override { 
         inPrint = true;
         stmt.getExpr()->accept(*this);
-        if (!stmt.getExpr()->getType().is(Ty::TypeKind::String))
-            stmt.setExpr(std::make_unique<Cast>(std::move(stmt.getUniqueExpr()), Ty::Type("string")));
+        if (!stmt.getExpr()->getType()->is(Ty::TypeKind::String))
+            stmt.setExpr(std::make_unique<Cast>(std::move(stmt.getUniqueExpr()), S.getType("string")));
         inPrint = false;
     };
     virtual void visit(Read &stmt) override {
         if (Variable* var = llvm::dyn_cast<Variable>(stmt.getIdentifier())) {
             var->accept(*this);
-            if (Value.isPrimitive() || Value.is(Ty::TypeKind::String))
+            if (Value->isPrimitive() || Value->is(Ty::TypeKind::String))
                 stmt.setType(Value);
             else
                 Diag.report(stmt.getLoc(),
                         diag::err_read_type,
-                        var->getData(), var->getType().get());
+                        var->getData(), var->getType()->get());
         } else
             Diag.report(stmt.getLoc(),
                 diag::err_invalid_read_expr);
@@ -610,10 +645,10 @@ public:
     virtual void visit(Return &stmt) override { 
         if (stmt.getExpr())
             stmt.getExpr()->accept(*this);
-        else Value = Ty::Type("void");
+        else Value = S.getType("void");
         if (!Ty::equals(FunType, Value))
             Diag.report(stmt.getLoc(), diag::err_bad_return_type,
-                        FunType.get(), Value.get());
+                        FunType->get(), Value->get());
     };
     virtual void visit(Break &stmt) override { };
     virtual void visit(Continue &stmt) override { };
@@ -621,7 +656,7 @@ public:
         Environment* prev = env;
         env = stmt.ifEnv;
         stmt.getExpr()->accept(*this);
-        if (!Value.is(Ty::TypeKind::Bool))
+        if (!Value->is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "if");
         stmt.getIfStmt()->accept(*this);
         if (stmt.getElseStmt()) {
@@ -634,7 +669,7 @@ public:
         Environment* prev = env;
         env = stmt.env;
         stmt.getExpr()->accept(*this);
-        if (!Value.is(Ty::TypeKind::Bool))
+        if (!Value->is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "while");
         stmt.getStmt()->accept(*this);
         env = prev;
@@ -643,7 +678,7 @@ public:
         Environment* prev = env;
         env = stmt.env;
         stmt.getExpr()->accept(*this);
-        if (!Value.is(Ty::TypeKind::Bool))
+        if (!Value->is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "until");
         stmt.getStmt()->accept(*this);
         env = prev;
@@ -653,7 +688,7 @@ public:
         env = stmt.env;
         stmt.getDecl()->accept(*this);
         stmt.getCond()->accept(*this);
-        if (!Value.is(Ty::TypeKind::Bool))
+        if (!Value->is(Ty::TypeKind::Bool))
             Diag.report(stmt.getLoc(), diag::err_bad_condition, "for");
         stmt.getUpdate()->accept(*this);
         stmt.getStmt()->accept(*this);
@@ -664,11 +699,20 @@ public:
         env = stmt.env;
         for (const auto& p : stmt.getParams())
             p->accept(*this);
+
+        if (!stmt.getType() && stmt.getTypeExpr()) {
+            stmt.getTypeExpr()->accept(*this);
+            stmt.setType(Value);
+        }
+
         FunType = stmt.getType();
+        stmt.markTypeResolved();
+
         auto* candidates = env->getParent()->getFunc(stmt.getIdentifier().getIdentifier());
         if (candidates) {
             for (const auto& candidate : *candidates) {
-                if (candidate.get() == &stmt) continue;
+                if (!candidate->isTypeResolved() 
+                        || candidate.get() == &stmt) continue;
                 if (checkExactSignature(candidate->getParams(), stmt.getParams())
                         && (stmt.isStatic() == candidate->isStatic())) {
                     Diag.report(stmt.getLoc(),
@@ -696,6 +740,30 @@ public:
     };
     virtual void visit(Import &stmt) override { };
     virtual void visit(Declare &stmt) override {
+        // IF user declared
+        if (stmt.getTypeExpr()) {
+            stmt.getTypeExpr()->accept(*this);
+            declaredType = Value;
+            stmt.setType(declaredType);
+        // IF implicit this
+        } else declaredType = stmt.getType();
+
+        if (!Ty::equals(declaredType, S.getType("void")) && declaredType->is(Ty::TypeKind::Void)) {
+            declaredType->setKind(Ty::TypeKind::UserDefined);
+        }
+        if (declaredType->is(Ty::TypeKind::Void)) {
+            Diag.report(stmt.getLoc(),
+                        diag::err_void_iden);
+        }
+        // Update Variable types
+        declareMode = true;
+        idens.clear();
+        stmt.getExpr()->accept(*this);
+        for (auto& iden : idens) {
+            env->updateVarType(iden.getLexeme(), declaredType);
+        }
+        // Check assignment types
+        declareMode = false;
         stmt.getExpr()->accept(*this);
     };
     virtual void visit(ExprStmt &stmt) override {
@@ -707,6 +775,7 @@ class ScopeResolution : public ASTVisitor{
     // Detects:
     //      undeclared variables,
     //      undeclared functions,
+    Sema& S;
     brainwave::DiagnosticsEngine &Diag;
     Environment* env;
     bool isLValue;
@@ -714,8 +783,8 @@ class ScopeResolution : public ASTVisitor{
     bool staticVar = false;
 
 public:
-    ScopeResolution(brainwave::DiagnosticsEngine &Diag) 
-        : Diag(Diag), mangledStr(Mangler::mangleStart()) { }
+    ScopeResolution(Sema& S, brainwave::DiagnosticsEngine &Diag) 
+        : S(S), Diag(Diag), mangledStr(Mangler::mangleStart()) { }
 
     void run(AST* Tree, Environment* e) {
         env = e;
@@ -736,14 +805,14 @@ public:
                 member = fun->getIdentifier().getIdentifier();
 
             // Set environment to the classes environment
-            Ty::Type type = expr.getLeft()->getType();
-            Environment* classEnv = env->getClass(type.get());
+            Ty::Type* type = expr.getLeft()->getType();
+            Environment* classEnv = env->getClass(type->get());
 
             if (!classEnv || !classEnv->hasMember(member)) {
-                Ty::Type type = expr.getLeft()->getType();
+                Ty::Type* type = expr.getLeft()->getType();
                 Diag.report(expr.getOp().getLocation(),
                         diag::err_undeclared_member,
-                        type.get(), member);
+                        type->get(), member);
             } 
         }
     };
@@ -803,6 +872,7 @@ public:
     virtual void visit(Cast &expr) override {
         expr.getExpr()->accept(*this);
     };
+    virtual void visit(TypeExpr &expr) override { };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
@@ -869,7 +939,7 @@ public:
         if (stmt.isStatic())
             mangledStr += Mangler::mangleStatic();
         for (const auto& p : stmt.getParams())
-            mangledStr += Mangler::mangleType(p->getType().str());
+            mangledStr += Mangler::mangleType(p->getType()->str());
         stmt.setMangled(mangledStr);
 
         stmt.getBody()->accept(*this);
@@ -916,6 +986,7 @@ class ControlFlow : public ASTVisitor{
     //      Return inside function
     //      All paths return value
     //      Unreachable code
+    Sema& S;
     brainwave::DiagnosticsEngine &Diag;
     Environment* env;
     bool escape = false;
@@ -935,7 +1006,7 @@ class ControlFlow : public ASTVisitor{
     }
 
 public:
-    ControlFlow(brainwave::DiagnosticsEngine &Diag) : Diag(Diag) { }
+    ControlFlow(Sema& S, brainwave::DiagnosticsEngine &Diag) : S(S), Diag(Diag) { }
 
     void run(AST* Tree, Environment* e) {
         escape = false;
@@ -955,6 +1026,7 @@ public:
     virtual void visit(Assign &expr) override { };
     virtual void visit(FunExpr &expr) override { };
     virtual void visit(Cast &expr) override { };
+    virtual void visit(TypeExpr &expr) override { };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
@@ -1091,7 +1163,7 @@ public:
         env = stmt.env;
         stmt.getBody()->accept(*this);
         env = prev;
-        if (!mustReturn && !(stmt.getType().is(Ty::TypeKind::Void) || stmt.isConstructor()))
+        if (!mustReturn && !(stmt.isConstructor() || stmt.getType()->is(Ty::TypeKind::Void)))
             Diag.report(stmt.getLoc(), diag::err_missing_return);
         mustReturn = false;
         escape = false;
@@ -1136,11 +1208,12 @@ class Desugar : public ASTVisitor{
     //          until loops into while loops
     //          obj.method(params) into method(obj, params)
     //          Constructor(params) into Constructor(obj, params)
+    Sema& S;
     std::unique_ptr<Expr> ReplaceExpr = nullptr;
     std::unique_ptr<Stmt> ReplaceStmt = nullptr;
 
 public:
-    Desugar() { }
+    Desugar(Sema& S) : S(S) { }
 
     std::unique_ptr<AST> run(std::unique_ptr<AST> Tree) {
         Tree->accept(*this);
@@ -1186,7 +1259,7 @@ public:
 
         if (expr.getOp().isOneOf(tok::TokenKind::PLUSPLUS, tok::TokenKind::MINUSMINUS)) {
             if (Variable* var = llvm::dyn_cast<Variable>(expr.getExpr())) {
-                Ty::Type type = expr.getType();
+                Ty::Type* type = expr.getType();
                 Token identifier = var->getIdentifier();
 
                 // Create Token for Literal 1
@@ -1251,7 +1324,7 @@ public:
             ReplaceExpr = nullptr;
         }
         if (!expr.getOp().is(tok::TokenKind::EQUAL)) {
-            Ty::Type type = expr.getType();
+            Ty::Type* type = expr.getType();
             auto LValue = expr.getLHSUnique();
             auto LValue_cp = LValue->clone();
 
@@ -1277,7 +1350,7 @@ public:
         FunStmt* func = expr.getCalledFun();
         if (func && func->isConstructor()) {
             // Insert this Parameter
-            Ty::Type classType = func->getType();
+            Ty::Type* classType = func->getType();
             static const char* nullStr = "null";
             Token nullToken = Token(nullStr, 4, tok::TokenKind::kw_null);
             auto nullLiteral = std::make_unique<Literal>(nullToken);
@@ -1299,6 +1372,7 @@ public:
             ReplaceExpr = nullptr;
         }
     };
+    virtual void visit(TypeExpr &expr) override { };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
@@ -1467,11 +1541,11 @@ std::unique_ptr<AST> Sema::next() {
     if (!ast)
         return nullptr;
     // Create all semantic pass visitors
-    EnvCreation EnvC(getDiagnostics(), &envs);
-    ScopeResolution ScoRe(getDiagnostics());
-    TypeChecker TypCh(getDiagnostics());
-    ControlFlow ConFl(getDiagnostics());
-    Desugar Des;
+    EnvCreation EnvC(*this, getDiagnostics(), &envs);
+    ScopeResolution ScoRe(*this, getDiagnostics());
+    TypeChecker TypCh(*this, getDiagnostics());
+    ControlFlow ConFl(*this, getDiagnostics());
+    Desugar Des(*this);
     // feed it into all passes
     EnvC.run(ast.get(), getBaseEnvironment());
     TypCh.run(ast.get(), getBaseEnvironment());
@@ -1481,6 +1555,20 @@ std::unique_ptr<AST> Sema::next() {
     return ast;
 }
 
+void Sema::internPrimitives() {
+    Ty::Type intType("int");
+    Ty::Type floatType("float");
+    Ty::Type doubleType("double");
+    Ty::Type boolType("bool");
+    Ty::Type voidType("void");
+
+    internType("int", intType);
+    internType("float", floatType);
+    internType("double", doubleType);
+    internType("bool", boolType);
+    internType("void", voidType);
+}
+
 void Sema::registerString() {
     Environment* baseEnv = getBaseEnvironment();
 
@@ -1488,13 +1576,14 @@ void Sema::registerString() {
     Environment* stringEnvPtr = stringEnv.get();
     envs.push_back(std::move(stringEnv));
 
-    Ty::Type stringType("string");
-    Ty::Type intType("int");
-    Ty::Type boolType("bool");
+    Ty::Type strType("string");
+    Ty::Type* stringType = internType("string", strType);
+    Ty::Type* intType = getType("int");
+    Ty::Type* boolType = getType("bool");
 
     auto addMethod = [&](const std::string& name,
             const std::string& mangledName,
-            Ty::Type returnType,
+            Ty::Type* returnType,
             llvm::SmallVector<std::unique_ptr<Declare>, 256> params) {
         auto func = createFunctionDecl(name, returnType, std::move(params));
         func->setMangled(mangledName);

@@ -14,9 +14,10 @@ using namespace llvm;
 
 namespace {
 class IRVisitor : public ASTVisitor {
+    Sema& S;
     Module* M;
     IRBuilder<> Builder;
-    DenseMap<Ty::Type, Type*> TypeMap;
+    DenseMap<Ty::Type*, Type*> TypeMap;
     PointerType *PtrTy;
     Value* V;
     Function* Fn;
@@ -38,12 +39,12 @@ class IRVisitor : public ASTVisitor {
         Builder.SetInsertPoint(Curr);
     }
 
-    Type* mapType(Ty::Type T) {
+    Type* mapType(Ty::Type* T) {
         if (Type* Ty = TypeMap.lookup(T))
             return Ty;
 
         llvm::errs() << "No LLVM type mapping for Ty::Type: "
-                     << T.str() << "(kind " << (unsigned)T.getKind() << ")\n";
+                     << T->str() << "(kind " << (unsigned)T->getKind() << ")\n";
         llvm::report_fatal_error("Misssing LLVM type mapping");
     }
 
@@ -61,7 +62,7 @@ class IRVisitor : public ASTVisitor {
 
         StructType* StringTy = StructType::create(Ctx, "bw_String");
         StringTy->setBody({I32, I8Ptr});
-        TypeMap[Ty::Type("string")] = StringTy;
+        TypeMap[S.getType("string")] = StringTy;
 
         PointerType* StringPtrTy = PointerType::get(StringTy, 0);
 
@@ -86,7 +87,7 @@ class IRVisitor : public ASTVisitor {
         Type* Float = Type::getFloatTy(Ctx);
         Type* Double = Type::getDoubleTy(Ctx);
         Type* I8Ptr = Type::getInt8PtrTy(Ctx);
-        Type* StringTy = mapType(Ty::Type("string"));
+        Type* StringTy = mapType(S.getType("string"));
 
         PointerType* StringPtrTy = PointerType::get(StringTy, 0);
 
@@ -110,7 +111,7 @@ class IRVisitor : public ASTVisitor {
         Type* Double = Type::getDoubleTy(Ctx);
         Type* I8Ptr = Type::getInt8PtrTy(Ctx);
         Type* Void = Type::getVoidTy(Ctx);
-        Type* StringTy = mapType(Ty::Type("string"));
+        Type* StringTy = mapType(S.getType("string"));
 
         PointerType* BoolPtr = PointerType::get(Bool, 0);
         PointerType* I32Ptr = PointerType::get(I32, 0);
@@ -127,7 +128,7 @@ class IRVisitor : public ASTVisitor {
         declareMethod("read_string", Void, {StringPtrTy});
     }
 
-    AllocaInst* storeBuiltIntoAlloca(Value* val, Ty::Type t) {
+    AllocaInst* storeBuiltIntoAlloca(Value* val, Ty::Type* t) {
         Type* Ty = mapType(t);
         AllocaInst* alloca = Builder.CreateAlloca(Ty, nullptr, "tmp");
         Builder.CreateStore(val, alloca);
@@ -135,12 +136,12 @@ class IRVisitor : public ASTVisitor {
     }
 
 public:
-    IRVisitor(Module* M, Environment* env) : M(M), env(env), Builder(M->getContext()) {
-        TypeMap[Ty::Type()] = Type::getVoidTy(M->getContext());
-        TypeMap[Ty::Type("bool")] = Type::getInt1Ty(M->getContext());
-        TypeMap[Ty::Type("int")] = Type::getInt32Ty(M->getContext());
-        TypeMap[Ty::Type("float")] = Type::getFloatTy(M->getContext());
-        TypeMap[Ty::Type("double")] = Type::getDoubleTy(M->getContext());
+    IRVisitor(Sema& S, Module* M, Environment* env) : S(S), M(M), env(env), Builder(M->getContext()) {
+        TypeMap[S.getType("void")] = Type::getVoidTy(M->getContext());
+        TypeMap[S.getType("bool")] = Type::getInt1Ty(M->getContext());
+        TypeMap[S.getType("int")] = Type::getInt32Ty(M->getContext());
+        TypeMap[S.getType("float")] = Type::getFloatTy(M->getContext());
+        TypeMap[S.getType("double")] = Type::getDoubleTy(M->getContext());
         PtrTy = Type::getInt8PtrTy(M->getContext());
 
         declareStringRuntime();
@@ -149,7 +150,7 @@ public:
     }
 
     void createMain() {
-        Type* Int32 = mapType(Ty::Type("int"));
+        Type* Int32 = mapType(S.getType("int"));
         FunctionType* MainFty = FunctionType::get(
                 Int32, {Int32, PtrTy}, false);
         Fn = Function::Create(
@@ -159,7 +160,7 @@ public:
     }
 
     void finishMain() {
-        Builder.CreateRet(ConstantInt::get(mapType(Ty::Type("int")), 1, true));
+        Builder.CreateRet(ConstantInt::get(mapType(S.getType("int")), 1, true));
     }
 
     void run(AST* Tree) {
@@ -174,8 +175,8 @@ public:
         Value* right;
 
         if (expr.getOp().is(tok::TokenKind::PERIOD)) {
-            Ty::Type classType = expr.getLeft()->getType();
-            Environment* classEnv = env->getClass(classType.get());
+            Ty::Type* classType = expr.getLeft()->getType();
+            Environment* classEnv = env->getClass(classType->get());
             Variable* fieldVar = dyn_cast<Variable>(expr.getRight());
             Token field = fieldVar->getIdentifier();
             int varIndex = classEnv->getIndex(field);
@@ -199,16 +200,16 @@ public:
         left = V;
         expr.getRight()->accept(*this);
         right = V;
-        Ty::Type Type = expr.getType();
+        Ty::Type* Type = expr.getType();
 
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::PLUS:
-                if (Type.get() == "string") {
+                if (Type->get() == "string") {
                     Function* addFn = M->getFunction("bw_string_add");
-                    AllocaInst* leftPtr = storeBuiltIntoAlloca(left, Ty::Type("string"));
-                    AllocaInst* rightPtr = storeBuiltIntoAlloca(right, Ty::Type("string"));
+                    AllocaInst* leftPtr = storeBuiltIntoAlloca(left, S.getType("string"));
+                    AllocaInst* rightPtr = storeBuiltIntoAlloca(right, S.getType("string"));
                     V = Builder.CreateCall(addFn, {leftPtr, rightPtr}, "str.add");
-                } else if (Type.get() == "float" || Type.get() == "double")
+                } else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFAdd(left, right);
                 else
                     V = Builder.CreateAdd(left, right);
@@ -220,19 +221,19 @@ public:
                 V = Builder.CreateMul(left, right);
                 break;
             case tok::TokenKind::SLASH:
-                if (Type.get() == "int") V = Builder.CreateSDiv(left, right);
+                if (Type->get() == "int") V = Builder.CreateSDiv(left, right);
                 else V = Builder.CreateFDiv(left, right);
                 break;
             case tok::TokenKind::CARET:
-                if (Type.get() == "int") {
+                if (Type->get() == "int") {
                     // FIXME: No build in power for ints. Runtime library it probably
-                } else if (Type.get() == "float") {
+                } else if (Type->get() == "float") {
                     Function* PowFn = Intrinsic::getDeclaration(
-                            M, Intrinsic::pow, {mapType(Ty::Type("float"))});
+                            M, Intrinsic::pow, {mapType(S.getType("float"))});
                     V = Builder.CreateCall(PowFn, {left, right});
-                } else if (Type.get() == "double") {
+                } else if (Type->get() == "double") {
                     Function* PowFn = Intrinsic::getDeclaration(
-                            M, Intrinsic::pow, {mapType(Ty::Type("double"))});
+                            M, Intrinsic::pow, {mapType(S.getType("double"))});
                     V = Builder.CreateCall(PowFn, {left, right});
                 }
                 break;
@@ -240,11 +241,11 @@ public:
                 V = Builder.CreateSRem(left, right);
                 break;
             case tok::TokenKind::EQ:
-                if (Type.get() == "int" || Type.get() == "bool")
+                if (Type->get() == "int" || Type->get() == "bool")
                     V = Builder.CreateICmpEQ(left, right);
-                else if (Type.get() == "float" || Type.get() == "double")
+                else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFCmpOEQ(left, right);
-                else if (Type.is(Ty::TypeKind::String)) {
+                else if (Type->is(Ty::TypeKind::String)) {
                     Function* eqFn = M->getFunction("bw_string_eq");
                     V = Builder.CreateCall(eqFn, {left, right}, "str.eq");
                     V = Builder.CreateICmpNE(V, ConstantInt::get(
@@ -252,11 +253,11 @@ public:
                 }
                 break;
             case tok::TokenKind::NEQ:
-                if (Type.get() == "int" || Type.get() == "bool")
+                if (Type->get() == "int" || Type->get() == "bool")
                     V = Builder.CreateICmpNE(left, right);
-                else if (Type.get() == "float" || Type.get() == "double")
+                else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFCmpONE(left, right);
-                else if (Type.is(Ty::TypeKind::String)) {
+                else if (Type->is(Ty::TypeKind::String)) {
                     Function* neFn = M->getFunction("bw_string_ne");
                     V = Builder.CreateCall(neFn, {left, right}, "str.ne");
                     V = Builder.CreateICmpNE(V, ConstantInt::get(
@@ -264,11 +265,11 @@ public:
                 }
                 break;
             case tok::TokenKind::LESS:
-                if (Type.get() == "int" || Type.get() == "bool")
+                if (Type->get() == "int" || Type->get() == "bool")
                     V = Builder.CreateICmpSLT(left, right);
-                else if (Type.get() == "float" || Type.get() == "double")
+                else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFCmpOLT(left, right);
-                else if (Type.is(Ty::TypeKind::String)) {
+                else if (Type->is(Ty::TypeKind::String)) {
                     Function* ltFn = M->getFunction("bw_string_lt");
                     V = Builder.CreateCall(ltFn, {left, right}, "str.lt");
                     V = Builder.CreateICmpNE(V, ConstantInt::get(
@@ -276,11 +277,11 @@ public:
                 }
                 break;
             case tok::TokenKind::LEQ:
-                if (Type.get() == "int" || Type.get() == "bool")
+                if (Type->get() == "int" || Type->get() == "bool")
                     V = Builder.CreateICmpSLE(left, right);
-                else if (Type.get() == "float" || Type.get() == "double")
+                else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFCmpOLE(left, right);
-                else if (Type.is(Ty::TypeKind::String)) {
+                else if (Type->is(Ty::TypeKind::String)) {
                     Function* leFn = M->getFunction("bw_string_le");
                     V = Builder.CreateCall(leFn, {left, right}, "str.le");
                     V = Builder.CreateICmpNE(V, ConstantInt::get(
@@ -288,11 +289,11 @@ public:
                 }
                 break;
             case tok::TokenKind::GREATER:
-                if (Type.get() == "int" || Type.get() == "bool")
+                if (Type->get() == "int" || Type->get() == "bool")
                     V = Builder.CreateICmpSGT(left, right);
-                else if (Type.get() == "float" || Type.get() == "double")
+                else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFCmpOGT(left, right);
-                else if (Type.is(Ty::TypeKind::String)) {
+                else if (Type->is(Ty::TypeKind::String)) {
                     Function* gtFn = M->getFunction("bw_string_gt");
                     V = Builder.CreateCall(gtFn, {left, right}, "str.gt");
                     V = Builder.CreateICmpNE(V, ConstantInt::get(
@@ -300,11 +301,11 @@ public:
                 }
                 break;
             case tok::TokenKind::GEQ:
-                if (Type.get() == "int" || Type.get() == "bool")
+                if (Type->get() == "int" || Type->get() == "bool")
                     V = Builder.CreateICmpSGE(left, right);
-                else if (Type.get() == "float" || Type.get() == "double")
+                else if (Type->get() == "float" || Type->get() == "double")
                     V = Builder.CreateFCmpOGE(left, right);
-                else if (Type.is(Ty::TypeKind::String)) {
+                else if (Type->is(Ty::TypeKind::String)) {
                     Function* geFn = M->getFunction("bw_string_ge");
                     V = Builder.CreateCall(geFn, {left, right}, "str.ge");
                     V = Builder.CreateICmpNE(V, ConstantInt::get(
@@ -316,7 +317,7 @@ public:
     virtual void visit(UnaryOp &expr) override {
         expr.getExpr()->accept(*this);
         Value* e = V;
-        Ty::Type Type = expr.getType();
+        Ty::Type* Type = expr.getType();
         Constant* One;
         switch (expr.getOp().getKind()) {
             case tok::TokenKind::BANG:
@@ -331,27 +332,27 @@ public:
         expr.getExpr()->accept(*this);
     };
     virtual void visit(Literal &expr) override {
-        Ty::Type Type = expr.getType();
-        if (Type.is(Ty::TypeKind::Bool)) {
+        Ty::Type* Type = expr.getType();
+        if (Type->is(Ty::TypeKind::Bool)) {
             if (expr.getTok().is(tok::TokenKind::kw_true))
-                V = ConstantInt::get(mapType(Ty::Type("bool")), 1, true);
-            else V = ConstantInt::get(mapType(Ty::Type("bool")), 0, true);
+                V = ConstantInt::get(mapType(S.getType("bool")), 1, true);
+            else V = ConstantInt::get(mapType(S.getType("bool")), 0, true);
         } else if (expr.getTok().is(tok::TokenKind::kw_null)) {
             V = llvm::UndefValue::get(mapType(Type));
-        } else if (Type.get() == "int") {
+        } else if (Type->get() == "int") {
             int intval;
             expr.getData().getAsInteger(10, intval);
-            V = ConstantInt::get(mapType(Ty::Type("int")), intval, true);
-        } else if (Type.get() == "float") {
+            V = ConstantInt::get(mapType(S.getType("int")), intval, true);
+        } else if (Type->get() == "float") {
             double temp;
             expr.getData().getAsDouble(temp);
             float fval = static_cast<float>(temp);
-            V = ConstantFP::get(mapType(Ty::Type("float")), fval);
-        } else if (Type.get() == "double") {
+            V = ConstantFP::get(mapType(S.getType("float")), fval);
+        } else if (Type->get() == "double") {
             double dval;
             expr.getData().getAsDouble(dval);
-            V = ConstantFP::get(mapType(Ty::Type("double")), dval);
-        } else if (Type.is(Ty::TypeKind::String)) {
+            V = ConstantFP::get(mapType(S.getType("double")), dval);
+        } else if (Type->is(Ty::TypeKind::String)) {
             llvm::StringRef raw = expr.getData();
             std::string content = raw.str();
 
@@ -376,7 +377,7 @@ public:
     virtual void visit(Variable &expr) override {
         auto id = expr.getIdentifier().getIdentifier();
         Value* alloca = env->getAlloca(id);
-        Ty::Type Type = expr.getType();
+        Ty::Type* Type = expr.getType();
         if (AddressMode) {
             if (!alloca) {
                 // static variables might not have unique name. Must use mangled
@@ -413,8 +414,8 @@ public:
             Builder.CreateBr(Merge);
 
             setCurr(Merge);
-            PHINode* phi = Builder.CreatePHI(mapType(Ty::Type("bool")), 2);
-            phi->addIncoming(ConstantInt::getFalse(mapType(Ty::Type("bool"))), LHS);
+            PHINode* phi = Builder.CreatePHI(mapType(S.getType("bool")), 2);
+            phi->addIncoming(ConstantInt::getFalse(mapType(S.getType("bool"))), LHS);
             phi->addIncoming(right, RHS);
             V = phi;
         } else if (expr.getOp().is(tok::TokenKind::OR)) {
@@ -427,8 +428,8 @@ public:
             Builder.CreateBr(Merge);
 
             setCurr(Merge);
-            PHINode* phi = Builder.CreatePHI(mapType(Ty::Type("bool")), 2);
-            phi->addIncoming(ConstantInt::getTrue(mapType(Ty::Type("bool"))), LHS);
+            PHINode* phi = Builder.CreatePHI(mapType(S.getType("bool")), 2);
+            phi->addIncoming(ConstantInt::getTrue(mapType(S.getType("bool"))), LHS);
             phi->addIncoming(right, RHS);
             V = phi;
         }
@@ -453,8 +454,8 @@ public:
             bool isThisParam = (i == 0) &&
                 (calledFun->isMethod() || calledFun->isConstructor()) &&
                 !declaredParams.empty() &&
-                (declaredParams[0]->getType().is(Ty::TypeKind::UserDefined) ||
-                 declaredParams[0]->getType().is(Ty::TypeKind::String));
+                (declaredParams[0]->getType()->is(Ty::TypeKind::UserDefined) ||
+                 declaredParams[0]->getType()->is(Ty::TypeKind::String));
 
             if (isThisParam) {
                 bool prevMode = AddressMode;
@@ -470,60 +471,60 @@ public:
     };
     virtual void visit(Cast &expr) override {
         expr.getExpr()->accept(*this);
-        Ty::Type fromType = expr.getExpr()->getType();
-        Ty::Type toType = expr.getType();
-        if (toType.get() == "int") {
-            if (fromType.isNumeric())
-                V = Builder.CreateFPToSI(V, mapType(Ty::Type("int")));
+        Ty::Type* fromType = expr.getExpr()->getType();
+        Ty::Type* toType = expr.getType();
+        if (toType->get() == "int") {
+            if (fromType->isNumeric())
+                V = Builder.CreateFPToSI(V, mapType(S.getType("int")));
             else {
                 llvm::SmallVector<Value*, 256> params;
                 Function* callee = M->getFunction("to_int");
                 params.push_back(V);
                 V = Builder.CreateCall(callee, params);
             }
-        } else if (toType.get() == "float") {
-            if (fromType.get() == "int")
-                V = Builder.CreateSIToFP(V, mapType(Ty::Type("float")));
-            else if (fromType.get() == "double")
-                V = Builder.CreateFPCast(V, mapType(Ty::Type("float")));
+        } else if (toType->get() == "float") {
+            if (fromType->get() == "int")
+                V = Builder.CreateSIToFP(V, mapType(S.getType("float")));
+            else if (fromType->get() == "double")
+                V = Builder.CreateFPCast(V, mapType(S.getType("float")));
             else {
                 llvm::SmallVector<Value*, 256> params;
                 Function* callee = M->getFunction("to_float");
                 params.push_back(V);
                 V = Builder.CreateCall(callee, params);
             }
-        } else if (toType.get() == "double") {
-            if (fromType.get() == "int")
-                V = Builder.CreateSIToFP(V, mapType(Ty::Type("double")));
-            else if (fromType.get() == "float")
-                V = Builder.CreateFPCast(V, mapType(Ty::Type("double")));
+        } else if (toType->get() == "double") {
+            if (fromType->get() == "int")
+                V = Builder.CreateSIToFP(V, mapType(S.getType("double")));
+            else if (fromType->get() == "float")
+                V = Builder.CreateFPCast(V, mapType(S.getType("double")));
             else {
                 llvm::SmallVector<Value*, 256> params;
                 Function* callee = M->getFunction("to_double");
                 params.push_back(V);
                 V = Builder.CreateCall(callee, params);
             }
-        } else if (toType.get() == "bool") {
+        } else if (toType->get() == "bool") {
             llvm::SmallVector<Value*, 256> params;
             Function* callee = M->getFunction("to_bool");
             params.push_back(V);
             V = Builder.CreateCall(callee, params);
-        } else if (toType.get() == "string") {
+        } else if (toType->get() == "string") {
             llvm::SmallVector<Value*, 256> params;
             params.push_back(V);
-            if (fromType.get() == "int") {
+            if (fromType->get() == "int") {
                 Function* callee = M->getFunction("to_string_from_int");
                 V = Builder.CreateCall(callee, params);
-            } else if (fromType.get() == "float") {
+            } else if (fromType->get() == "float") {
                 Function* callee = M->getFunction("to_string_from_float");
                 V = Builder.CreateCall(callee, params);
-            } else if (fromType.get() == "double") {
+            } else if (fromType->get() == "double") {
                 Function* callee = M->getFunction("to_string_from_double");
                 V = Builder.CreateCall(callee, params);
-            } else if (fromType.get() == "bool") {
+            } else if (fromType->get() == "bool") {
                 Function* callee = M->getFunction("to_string_from_bool");
                 V = Builder.CreateCall(callee, params);
-            } else if (fromType.isUserDefined()) {
+            } else if (fromType->isUserDefined()) {
                 // Figure out how to cast user defined types to strings
                 /*
                 params.clear();
@@ -535,6 +536,7 @@ public:
             }
         }
     };
+    virtual void visit(TypeExpr &expr) override { };
 
     // Statement ASTs
     virtual void visit(Block &stmt) override {
@@ -547,29 +549,29 @@ public:
     };
     virtual void visit(Print &stmt) override {
         stmt.getExpr()->accept(*this);
-        AllocaInst* strPtr = storeBuiltIntoAlloca(V, Ty::Type("string"));
+        AllocaInst* strPtr = storeBuiltIntoAlloca(V, S.getType("string"));
         llvm::SmallVector<Value*, 256> params;
         Function* callee = M->getFunction("bw_print");
         params.push_back(strPtr);
         V = Builder.CreateCall(callee, params);
     };
     virtual void visit(Read &stmt) override {
-        Ty::Type T = stmt.getType();
+        Ty::Type* T = stmt.getType();
         llvm::SmallVector<Value*, 256> params;
         bool prevMode = AddressMode;
         AddressMode = true;
         stmt.getIdentifier()->accept(*this);
         params.push_back(V);
         Function* callee;
-        if (T.is(Ty::TypeKind::Bool))
+        if (T->is(Ty::TypeKind::Bool))
             callee = M->getFunction("read_bool");
-        else if (T.get() == "int")
+        else if (T->get() == "int")
             callee = M->getFunction("read_int");
-        else if (T.get() == "float")
+        else if (T->get() == "float")
             callee = M->getFunction("read_float");
-        else if (T.get() == "double")
+        else if (T->get() == "double")
             callee = M->getFunction("read_double");
-        else if (T.is(Ty::TypeKind::String))
+        else if (T->is(Ty::TypeKind::String))
             callee = M->getFunction("read_string");
         V = Builder.CreateCall(callee, params);
         AddressMode = prevMode;
@@ -744,7 +746,7 @@ public:
             Elements.push_back(mapType(F->getType()));
         llvm::Type* T = llvm::StructType::create(
                 Elements, stmt.getIdentifier().getIdentifier(), false);
-        TypeMap[Ty::Type(stmt.getIdentifier().getIdentifier())] = T;
+        TypeMap[S.getType(stmt.getIdentifier().getIdentifier())] = T;
 
         for (auto& entry : stmt.env->getFuncs()) {
             for (auto& func : entry.getValue())
@@ -773,7 +775,7 @@ void CodeGen::compile(const char* Argv0, const char* F, llvm::TargetMachine* TM)
     //M->setPICLevel(llvm::PICLevel::Level::BigPIC);
     //M->setPIELevel(llvm::PIELevel::Level::Large);
 
-    IRVisitor IRV(M.get(), sema.getBaseEnvironment());
+    IRVisitor IRV(sema, M.get(), sema.getBaseEnvironment());
     IRV.createMain();
     while (true) {
         std::unique_ptr<AST> Tree = std::move(sema.next());

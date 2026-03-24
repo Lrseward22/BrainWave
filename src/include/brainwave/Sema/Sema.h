@@ -8,6 +8,9 @@ class Sema {
     Parser &P;
     llvm::SmallVector<std::unique_ptr<Environment>, 256> envs;
     llvm::SmallVector<std::string, 256> builtins;
+    public:
+    llvm::StringMap<std::unique_ptr<Ty::Type>> TypeTable;
+    private:
 
     Token createToken(const std::string& name, tok::TokenKind kind = tok::TokenKind::IDENTIFIER) {
         builtins.push_back(name);
@@ -15,7 +18,7 @@ class Sema {
         return Token(data, name.length(), kind);
     }
         
-    std::unique_ptr<Declare> createDeclare(const std::string& name, Ty::Type type, bool isStatic = false) {
+    std::unique_ptr<Declare> createDeclare(const std::string& name, Ty::Type* type, bool isStatic = false) {
         Token iden = createToken(name);
         auto varExpr = std::make_unique<Variable>(iden);
         varExpr->setType(type);
@@ -24,7 +27,7 @@ class Sema {
 
     std::unique_ptr<FunStmt> createFunctionDecl(
             const std::string& name,
-            Ty::Type returnType,
+            Ty::Type* returnType,
             llvm::SmallVector<std::unique_ptr<Declare>, 256> params,
             bool isStatic = false
             ) {
@@ -36,6 +39,8 @@ class Sema {
         return func;
     }
 
+    void internPrimitives();
+
     void registerString();
 
     public:
@@ -44,6 +49,7 @@ class Sema {
         auto env = std::make_unique<Environment>(EnvKind::Base, nullptr);
         envs.push_back(std::move(env));
 
+        internPrimitives();
         registerString();
     }
 
@@ -53,6 +59,33 @@ class Sema {
 
     Environment* getBaseEnvironment() {
         return envs[0].get();
+    }
+
+    Ty::Type* internType(const std::string& str, const Ty::Type& T) {
+        auto it = TypeTable.find(str);
+        if (it != TypeTable.end())
+            return it->second.get();
+        auto [insertedIt, _] = TypeTable.try_emplace(str, std::make_unique<Ty::Type>(T));
+        return insertedIt->second.get();
+    }
+
+    Ty::Type* getType(const std::string& str) {
+        auto it = TypeTable.find(str);
+        return (it != TypeTable.end()) ? it->second.get() : nullptr;
+    }
+
+    Ty::Type* internType(const llvm::StringRef& str, const Ty::Type& T) {
+        return internType(str.str(), T);
+    }
+    Ty::Type* internType(const char* str, const Ty::Type& T) {
+        return internType(std::string(str), T);
+    }
+
+    Ty::Type* getType(const llvm::StringRef& str) {
+        return getType(str.str());
+    }
+    Ty::Type* getType(const char* str) {
+        return getType(std::string(str));
     }
 
     std::unique_ptr<AST> next();

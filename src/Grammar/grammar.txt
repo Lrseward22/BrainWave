@@ -27,7 +27,7 @@ statement
     ;
 
 funcDefStatement
-    : (kw_STATIC)? kw_FUN IDENTIFIER L_PAREN paramList? R_PAREN ARROW type block
+    : (kw_STATIC)? kw_FUN IDENTIFIER L_PAREN paramList? R_PAREN ARROW typeExpr statement
     ;
 
 returnStatement
@@ -98,7 +98,7 @@ importStatement
     ;
     
 declareStatement
-    : (kw_STATIC)? TYPE (IDENTIFIER | assignExpr)
+    : (kw_STATIC)? typeExpr (IDENTIFIER | assignExpr)
     ;
 
 exprStatement
@@ -146,7 +146,7 @@ unary
     ;
 
 cast
-    : TYPE L_PAREN logicalExpr R_PAREN
+    : typeExpr L_PAREN logicalExpr R_PAREN
     | memberExpr
     ;
 
@@ -175,4 +175,7 @@ funExpr
     : IDENTIFIER L_PAREN argList? R_PAREN
     ;
 
-TYPE: (kw_INT | kw_BOOL | kw_FLOAT | kw_DOUBLE | kw_STRING | kw_VOID | INDENTIFIER) ;
+typeExpr
+    : (kw_INT | kw_BOOL | kw_FLOAT | kw_DOUBLE | kw_STRING | kw_VOID )
+    | INDENTIFIER LESS typeExpr GREATER
+    ;

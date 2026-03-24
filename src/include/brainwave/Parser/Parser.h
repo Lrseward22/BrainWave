@@ -69,6 +69,7 @@ class Parser {
     std::unique_ptr<Expr> parseGrouping();
     std::unique_ptr<Expr> parseBaseExpr();
     std::unique_ptr<Expr> parseFunExpr(Token identifier);
+    std::unique_ptr<TypeExpr> parseTypeExpr();
     
     // STMTs
     std::unique_ptr<Stmt> parseStmt();
@@ -105,6 +106,10 @@ class Parser {
 
     void StaticConstructorError() {
         getDiagnostics().report(Tok.getLocation(), diag::err_static_constructor, Tok.getIdentifier());
+    }
+
+    void PrimitiveContainerError() {
+        getDiagnostics().report(Tok.getLocation(), diag::err_primitive_container, Tok.getIdentifier());
     }
 
     public:

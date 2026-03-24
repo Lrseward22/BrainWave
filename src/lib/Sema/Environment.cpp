@@ -1,18 +1,34 @@
 #include <brainwave/Sema/Environment.h>
 #include <brainwave/Parser/AST.h>
 
-bool Environment::defineVar(llvm::StringRef name, Ty::Type type) {
+bool Environment::defineVar(llvm::StringRef name, TypeExpr* type) {
     if (typeMap.count(name))
         return true;
-    typeMap[name] = type;
+    typeMap[name] = VarInfo{type, nullptr};
     indexMap[name] = indexCount++;
     return false;
 }
 
+bool Environment::defineVar(llvm::StringRef name, Ty::Type* type) {
+    if (typeMap.count(name))
+        return true;
+    typeMap[name] = VarInfo{nullptr, type};
+    indexMap[name] = indexCount++;
+    return false;
+}
+
+void Environment::updateVarType(llvm::StringRef name, Ty::Type* type) {
+    if (typeMap.count(name))
+        typeMap[name].type = type;
+}
+
 Ty::Type* Environment::getVar(Token name) {
-    if (typeMap.count(name.getLexeme()))
-        return &typeMap[name.getLexeme()];
-    else if (parent != nullptr)
+    if (typeMap.count(name.getLexeme())) {
+        VarInfo& info = typeMap[name.getLexeme()];
+        if (info.type) return info.type;
+        if (info.typeExpr) return info.typeExpr->getType();
+        return nullptr;
+    } else if (parent != nullptr)
         return parent->getVar(name);
     return nullptr;
 }

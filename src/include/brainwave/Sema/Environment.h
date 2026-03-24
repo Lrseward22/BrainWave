@@ -11,6 +11,7 @@
 #include <memory>
 
 class FunStmt;
+class TypeExpr;
 class ClassStmt;
 class ClassInfo;
 class Environment;
@@ -36,6 +37,11 @@ inline std::ostream& operator<<(std::ostream& os, EnvKind k) {
     return os << "Unknown";
 }
 
+struct VarInfo {
+    TypeExpr* typeExpr;
+    Ty::Type* type;
+};
+
 class ClassInfo {
     friend class Environment;
     Environment* env;
@@ -49,7 +55,7 @@ class ClassInfo {
 
 class Environment {
     Environment *parent;
-    llvm::StringMap<Ty::Type> typeMap;
+    llvm::StringMap<VarInfo> typeMap;
     llvm::StringMap<llvm::Value*> allocations;
     llvm::StringMap<llvm::SmallVector<std::unique_ptr<FunStmt>, 256>> funcMap;
     llvm::StringMap<ClassInfo> classMap;
@@ -61,7 +67,9 @@ class Environment {
     Environment(EnvKind kind, Environment *parent) 
         : parent(parent), kind(kind) {}
 
-    bool defineVar(llvm::StringRef name, Ty::Type type);
+    bool defineVar(llvm::StringRef name, TypeExpr* type);
+    bool defineVar(llvm::StringRef name, Ty::Type* type);
+    void updateVarType(llvm::StringRef name, Ty::Type* type);
     Ty::Type* getVar(Token name);
     bool declareAlloca(llvm::StringRef name, llvm::Value* alloca);
     llvm::Value* getAlloca(llvm::StringRef name);
